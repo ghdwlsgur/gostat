@@ -10,10 +10,10 @@ import (
 )
 
 var (
-	statCommand = &cobra.Command{
-		Use:   "stat",
-		Short: "Exec `gostat stat`",
-		Long:  "test",
+	requestCommand = &cobra.Command{
+		Use:   "request",
+		Short: "Exec `gostat request`",
+		Long:  "Receives the response of the url to each A record of the target domain to the url using the http or https protocol.",
 		Run: func(_ *cobra.Command, args []string) {
 			var (
 				err     error
@@ -68,7 +68,6 @@ var (
 						panicRed(err)
 					}
 				}
-
 			}
 
 		},
@@ -76,15 +75,15 @@ var (
 )
 
 func init() {
-	statCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
-	statCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
-	statCommand.Flags().StringP("http-host", "H", "", "[optional] The host to put in the request headers.")
-	statCommand.Flags().StringP("referer", "r", "", "[optional]")
+	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
+	requestCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
+	requestCommand.Flags().StringP("http-host", "H", "", "[optional] The host to put in the request headers.")
+	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
 
-	viper.BindPFlag("stat-target-domain", statCommand.Flags().Lookup("target"))
-	viper.BindPFlag("port-number", statCommand.Flags().Lookup("port"))
-	viper.BindPFlag("host-name", statCommand.Flags().Lookup("http-host"))
-	viper.BindPFlag("referer-name", statCommand.Flags().Lookup("referer"))
+	viper.BindPFlag("stat-target-domain", requestCommand.Flags().Lookup("target"))
+	viper.BindPFlag("port-number", requestCommand.Flags().Lookup("port"))
+	viper.BindPFlag("host-name", requestCommand.Flags().Lookup("http-host"))
+	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
 
-	rootCmd.AddCommand(statCommand)
+	rootCmd.AddCommand(requestCommand)
 }
