@@ -6,9 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/fatih/color"
@@ -55,11 +53,10 @@ func (r Request) getReferer() string {
 	return r.refererField
 }
 
-func RequestResolveHTTP(ip string, targetUrl, targetUrlHost string, target string, port int, host string, referer string) error {
-
-	ref := fmt.Sprintf("http://%s:%v@%s:%v", targetUrlHost, port, ip, port)
+func RequestResolveHTTP(ip string, domain, domainHost string, target string, port int, host string, referer string) error {
 
 	netUrl := url.URL{}
+	ref := fmt.Sprintf("http://%s:%v@%s:%v", domainHost, port, ip, port)
 	url_proxy, err := netUrl.Parse(ref)
 	if err != nil {
 		return err
@@ -77,7 +74,7 @@ func RequestResolveHTTP(ip string, targetUrl, targetUrlHost string, target strin
 		Transport: &transport,
 	}
 
-	urlDomain := fmt.Sprintf("http://%s", targetUrl)
+	urlDomain := fmt.Sprintf("http://%s", domain)
 	req, err := http.NewRequest("GET", urlDomain, nil)
 	if err != nil {
 		panic(err)
@@ -101,34 +98,8 @@ func RequestResolveHTTP(ip string, targetUrl, targetUrlHost string, target strin
 	}
 	defer resp.Body.Close()
 
-	stat := &Stat{}
-	end := time.Now()
-
-	dnsLookup := int(result.DNSLookup / time.Millisecond)
-	tcpConnection := int(result.TCPConnection / time.Millisecond)
-	serverProcessing := int(result.ServerProcessing / time.Millisecond)
-
-	stat.DnsLookup = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup))
-	stat.TcpConnection = color.HiMagentaString(fmt.Sprintf("%dms", tcpConnection))
-	stat.ServerProcessing = color.HiMagentaString(fmt.Sprintf("%dms", serverProcessing))
-	stat.ContentTransfer = color.HiMagentaString(fmt.Sprintf("%dms", int(result.ContentTransfer(end)/time.Millisecond)))
-	stat.CumulativeTcp = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup+tcpConnection))
-	stat.CumulativeServer = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup+tcpConnection+serverProcessing))
-	stat.CumulativeContent = color.HiMagentaString(fmt.Sprintf("%v", result.Total(end)/time.Millisecond))
-	stat.Ipv4 = ip
-
-	const httpTmpl = "\tDNS Lookup:\t\t{{.DnsLookup}}\n\tTCP Connection:\t\t{{.TcpConnection}}\t\t\t\t{{.CumulativeTcp}}\n\tServer Processing:\t{{.ServerProcessing}}\t\t\t\t{{.CumulativeServer}}\n\tContent Transfer:\t{{.ContentTransfer}}\t\t\t{{.CumulativeContent}}\n\n"
-	t, err := template.New("monitor").Parse(httpTmpl)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("\n\t==============%s [%s]==============\n", color.HiYellowString(target), color.HiYellowString(stat.Ipv4))
-	fmt.Printf("\n%s\n", color.HiWhiteString("Trace HTTP Latency"))
-	err = t.Execute(os.Stdout, stat)
-	if err != nil {
-		return err
-	}
+	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(target), color.HiYellowString(ip), color.HiYellowString("=============="))
+	latencyWrapper(urlDomain)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	reqDirective := &Request{}
@@ -184,9 +155,9 @@ func RequestResolveHTTP(ip string, targetUrl, targetUrlHost string, target strin
 	return nil
 }
 
-func RequestResolveHTTPS(ip string, targetUrl, targetUrlHost string, target string, host string, referer string) error {
+func RequestResolveHTTPS(ip string, domain, domainHost string, target string, host string, referer string) error {
 
-	ref := fmt.Sprintf("https://%s:443@%s:443", targetUrlHost, ip)
+	ref := fmt.Sprintf("https://%s:443@%s:443", domainHost, ip)
 	netUrl := url.URL{}
 
 	url_proxy, err := netUrl.Parse(ref)
@@ -203,7 +174,7 @@ func RequestResolveHTTPS(ip string, targetUrl, targetUrlHost string, target stri
 	transport.Proxy = http.ProxyURL(url_proxy)
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-	dialAddr := fmt.Sprintf("%s:443", targetUrlHost)
+	dialAddr := fmt.Sprintf("%s:443", domainHost)
 	conn, err := tls.Dial("tcp", dialAddr, transport.TLSClientConfig)
 	if err != nil {
 		return err
@@ -214,7 +185,7 @@ func RequestResolveHTTPS(ip string, targetUrl, targetUrlHost string, target stri
 		Transport: &transport,
 	}
 
-	urlDomain := fmt.Sprintf("http://%s", targetUrl)
+	urlDomain := fmt.Sprintf("http://%s", domain)
 	req, err := http.NewRequest("GET", urlDomain, nil)
 	if err != nil {
 		panic(err)
@@ -237,38 +208,8 @@ func RequestResolveHTTPS(ip string, targetUrl, targetUrlHost string, target stri
 	}
 	defer resp.Body.Close()
 
-	stat := &Stat{}
-	end := time.Now()
-
-	dnsLookup := int(result.DNSLookup / time.Millisecond)
-	tcpConnection := int(result.TCPConnection / time.Millisecond)
-	tlsHandShake := int(result.TLSHandshake / time.Millisecond)
-	serverProcessing := int(result.ServerProcessing / time.Millisecond)
-
-	stat.DnsLookup = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup))
-	stat.TcpConnection = color.HiMagentaString(fmt.Sprintf("%dms", tcpConnection))
-	stat.TlsHandshake = color.HiMagentaString(fmt.Sprintf("%dms", tlsHandShake))
-	stat.ServerProcessing = color.HiMagentaString(fmt.Sprintf("%dms", serverProcessing))
-	stat.ContentTransfer = color.HiMagentaString(fmt.Sprintf("%dms", int(result.ContentTransfer(end)/time.Millisecond)))
-	stat.CumulativeTcp = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup+tcpConnection))
-	stat.CumulativeTls = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup+tcpConnection+tlsHandShake))
-	stat.CumulativeServer = color.HiMagentaString(fmt.Sprintf("%dms", dnsLookup+tcpConnection+tlsHandShake+serverProcessing))
-	stat.CumulativeContent = color.HiMagentaString(fmt.Sprintf("%v", result.Total(end)/time.Millisecond))
-	stat.Ipv4 = ip
-
-	const httpsTmpl = "\tDNS Lookup:\t\t{{.DnsLookup}}\n\tTCP Connection:\t\t{{.TcpConnection}}\t\t\t\t{{.CumulativeTcp}}\n\tTLS Handshake:\t\t{{.TlsHandshake}}\t\t\t\t{{.CumulativeTls}}\n\tServer Processing:\t{{.ServerProcessing}}\t\t\t\t{{.CumulativeServer}}\n\tContent Transfer:\t{{.ContentTransfer}}\t\t\t{{.CumulativeContent}}\n\n"
-
-	t, err := template.New("monitor").Parse(httpsTmpl)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("\n\t==============%s [%s]==============\n", color.HiYellowString(target), color.HiYellowString(stat.Ipv4))
-	fmt.Printf("\n%s\n", color.HiWhiteString("Trace HTTP Latency"))
-	err = t.Execute(os.Stdout, stat)
-	if err != nil {
-		return err
-	}
+	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(target), color.HiYellowString(ip), color.HiYellowString("=============="))
+	latencyWrapper(urlDomain)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	reqDirective := &Request{}
@@ -312,22 +253,4 @@ func RequestResolveHTTPS(ip string, targetUrl, targetUrlHost string, target stri
 
 	return nil
 
-}
-
-func stringFormat(word string) string {
-
-	var prefixBucket []string
-	words := strings.Split(word, "-")
-	for i, w := range words {
-		if i != len(words)-1 {
-			prefixBucket = append(prefixBucket, w[:1])
-		}
-	}
-	front := strings.Join(prefixBucket, "")
-	wordFormat := strings.Join([]string{front, words[len(words)-1]}, "-")
-
-	if len(wordFormat) > 14 {
-		stringFormat(wordFormat)
-	}
-	return wordFormat
 }
