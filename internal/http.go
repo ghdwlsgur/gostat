@@ -13,20 +13,6 @@ import (
 	"github.com/tcnksm/go-httpstat"
 )
 
-type Stat struct {
-	DnsLookup         string
-	TcpConnection     string
-	TlsHandshake      string
-	ServerProcessing  string
-	ContentTransfer   string
-	Total             string
-	CumulativeTcp     string
-	CumulativeTls     string
-	CumulativeServer  string
-	CumulativeContent string
-	Ipv4              string
-}
-
 type Request struct {
 	hostField    string
 	rangeField   string
@@ -209,7 +195,7 @@ func RequestResolveHTTPS(ip string, domain, domainHost string, target string, ho
 	defer resp.Body.Close()
 
 	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(target), color.HiYellowString(ip), color.HiYellowString("=============="))
-	latencyWrapper(urlDomain)
+	latencyWrapper(fmt.Sprintf("https://%s", domain))
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	reqDirective := &Request{}
