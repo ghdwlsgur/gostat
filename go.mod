@@ -7,6 +7,10 @@ require github.com/spf13/cobra v1.6.1
 require github.com/tcnksm/go-httpstat v0.2.0
 
 require (
+	github.com/sirupsen/logrus v1.9.0
+)
+
+require (
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.6 // indirect
