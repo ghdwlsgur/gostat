@@ -24,3 +24,39 @@ func PrintFunc(field, value string) {
 		fmt.Printf("%s\t%s\n", color.HiBlackString(field), value)
 	}
 }
+
+func printStatusFormat(field string, valueA string, valueB string) {
+	if len(field) >= 24 {
+		fmt.Printf("\t%s\t%v\t\t%v\n", field, valueA, valueB)
+		return
+	}
+	if len(field) <= 16 {
+		fmt.Printf("\t%s\t\t\t%v\t\t%s\n", field, valueA, valueB)
+		return
+	}
+	if len(valueA) <= 16 {
+		fmt.Printf("\t%s\t\t%v\t\t\t%s\n", field, valueA, valueB)
+		return
+	} else {
+		fmt.Printf("\t%s\t\t%v\t\t%v\n", field, valueA, valueB)
+		return
+	}
+}
+
+func stringFormat(word string) string {
+
+	var prefixBucket []string
+	words := strings.Split(word, "-")
+	for i, w := range words {
+		if i != len(words)-1 {
+			prefixBucket = append(prefixBucket, w[:1])
+		}
+	}
+	front := strings.Join(prefixBucket, "")
+	wordFormat := strings.Join([]string{front, words[len(words)-1]}, "-")
+
+	if len(wordFormat) > 14 {
+		stringFormat(wordFormat)
+	}
+	return wordFormat
+}
