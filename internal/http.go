@@ -13,30 +13,32 @@ import (
 	"github.com/tcnksm/go-httpstat"
 )
 
-type Request struct {
-	hostField    string	
-	refererField string
-	rangeField   string
-}
+type (
+	Request struct {
+		host       string
+		referer    string
+		rangeField string
+	}
 
-type Response struct {
-	respStatus string
-}
+	Response struct {
+		respStatus string
+	}
+)
 
 func (r Response) getRespStatus() string {
 	return r.respStatus
 }
 
 func (r Request) getHost() string {
-	return r.hostField
+	return r.host
+}
+
+func (r Request) getReferer() string {
+	return r.referer
 }
 
 func (r Request) getRange() string {
 	return r.rangeField
-}
-
-func (r Request) getReferer() string {
-	return r.refererField
 }
 
 func RequestResolveHTTP(ip string, domain, domainHost string, target string, port int, host string, referer string) error {
@@ -90,12 +92,11 @@ func RequestResolveHTTP(ip string, domain, domainHost string, target string, por
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	reqDirective := &Request{}
 	if len(resp.Request.Header.Values("host")) > 0 {
-		reqDirective.hostField = resp.Request.Header.Values("host")[0] // [optional]
+		reqDirective.host = resp.Request.Header.Values("host")[0] // [optional]
 		PrintFunc("Host", reqDirective.getHost())
-
 	}
 	if len(resp.Request.Header.Values("referer")) > 0 {
-		reqDirective.refererField = resp.Request.Header.Values("referer")[0] // [optional]
+		reqDirective.referer = resp.Request.Header.Values("referer")[0] // [optional]
 		PrintFunc("Referer", reqDirective.getReferer())
 	}
 	reqDirective.rangeField = resp.Request.Header.Values("range")[0] // [required]
@@ -200,11 +201,11 @@ func RequestResolveHTTPS(ip string, domain, domainHost string, target string, ho
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	reqDirective := &Request{}
 	if len(resp.Request.Header.Values("host")) > 0 {
-		reqDirective.hostField = resp.Request.Header.Values("host")[0] // [optional]
+		reqDirective.host = resp.Request.Header.Values("host")[0] // [optional]
 		PrintFunc("Host", reqDirective.getHost())
 	}
 	if len(resp.Request.Header.Values("referer")) > 0 {
-		reqDirective.refererField = resp.Request.Header.Values("referer")[0] // [optional]
+		reqDirective.referer = resp.Request.Header.Values("referer")[0] // [optional]
 		PrintFunc("Referer", reqDirective.getReferer())
 	}
 	reqDirective.rangeField = resp.Request.Header.Values("range")[0] // [required]

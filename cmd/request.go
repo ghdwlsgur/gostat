@@ -20,6 +20,9 @@ var (
 				url     string
 				urlHost string
 				target  string
+			)
+
+			var (
 				port    int
 				host    string
 				referer string
