@@ -139,6 +139,6 @@ func latencyWrapper(url string) {
 	go GatherLatencies(url, results, doneC)
 
 	for r := range results {
-		fmt.Printf("\t%s\n\n", color.HiBlackString(r.URL))
+		fmt.Printf("\t%s\t\t\t%dms\n\n", color.HiWhiteString("Total"), r.Latency)
 	}
 }
