@@ -14,9 +14,9 @@ import (
 )
 
 type Request struct {
-	hostField    string
-	rangeField   string
+	hostField    string	
 	refererField string
+	rangeField   string
 }
 
 type Response struct {
@@ -43,7 +43,7 @@ func RequestResolveHTTP(ip string, domain, domainHost string, target string, por
 
 	netUrl := url.URL{}
 	ref := fmt.Sprintf("http://%s:%v@%s:%v", domainHost, port, ip, port)
-	url_proxy, err := netUrl.Parse(ref)
+	urlProxy, err := netUrl.Parse(ref)
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func RequestResolveHTTP(ip string, domain, domainHost string, target string, por
 		}).Dial,
 		TLSHandshakeTimeout: 5 * time.Second,
 	}
-	transport.Proxy = http.ProxyURL(url_proxy)
+	transport.Proxy = http.ProxyURL(urlProxy)
 
 	client := &http.Client{
 		Transport: &transport,
