@@ -73,7 +73,6 @@ var (
 						if err != nil {
 							panicRed(err)
 						}
-						fmt.Println(ip.String())
 					}
 				}
 			}
