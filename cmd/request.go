@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/ghdwlsgur/gostat/internal"
@@ -57,6 +58,7 @@ var (
 				port = viper.GetInt("port-number")
 
 				for _, ip := range ips {
+
 					err = internal.RequestResolveHTTP(ip.String(), url, urlHost, target, port, host, referer)
 					if err != nil {
 						panicRed(err)
@@ -66,9 +68,12 @@ var (
 
 			if protocol == "https" {
 				for _, ip := range ips {
-					err = internal.RequestResolveHTTPS(ip.String(), url, urlHost, target, host, referer)
-					if err != nil {
-						panicRed(err)
+					if net.ParseIP(ip.String()).To4() != nil {
+						err = internal.RequestResolveHTTPS(ip.String(), url, urlHost, target, host, referer)
+						if err != nil {
+							panicRed(err)
+						}
+						fmt.Println(ip.String())
 					}
 				}
 			}

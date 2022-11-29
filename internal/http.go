@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -144,22 +145,30 @@ func RequestResolveHTTP(ip string, domain, domainHost string, target string, por
 
 func RequestResolveHTTPS(ip string, domain, domainHost string, target string, host string, referer string) error {
 
-	ref := fmt.Sprintf("https://%s:443@%s:443", domainHost, ip)
-	netUrl := url.URL{}
-
-	url_proxy, err := netUrl.Parse(ref)
-	if err != nil {
-		return err
-	}
-
 	transport := http.Transport{
 		Dial: (&net.Dialer{
 			Timeout: 5 * time.Second,
 		}).Dial,
 		TLSHandshakeTimeout: 5 * time.Second,
 	}
-	transport.Proxy = http.ProxyURL(url_proxy)
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		DualStack: true,
+	}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if addr == fmt.Sprintf("%s:443", domain) {
+			addr = fmt.Sprintf("%s:443", ip)
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS11,
+		MaxVersion:         tls.VersionTLS13,
+	}
 
 	dialAddr := fmt.Sprintf("%s:443", domainHost)
 	conn, err := tls.Dial("tcp", dialAddr, transport.TLSClientConfig)
@@ -172,11 +181,12 @@ func RequestResolveHTTPS(ip string, domain, domainHost string, target string, ho
 		Transport: &transport,
 	}
 
-	urlDomain := fmt.Sprintf("http://%s", domain)
+	urlDomain := fmt.Sprintf("https://%s", domain)
 	req, err := http.NewRequest("GET", urlDomain, nil)
 	if err != nil {
 		panic(err)
 	}
+
 	var result httpstat.Result
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
