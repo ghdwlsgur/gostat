@@ -14,32 +14,32 @@ import (
 )
 
 type (
-	Request struct {
+	ReqOptions struct {
 		host      string
 		referer   string
 		byteRange string
 		transport http.Transport
 	}
 
-	Response struct {
+	ResolveResponse struct {
 		respStatus string
 	}
 )
 
-func (r Response) getRespStatus() string {
-	return r.respStatus
+func (rr ResolveResponse) getRespStatus() string {
+	return rr.respStatus
 }
 
-func (r Request) getHost() string {
-	return r.host
+func (ro ReqOptions) getHost() string {
+	return ro.host
 }
 
-func (r Request) getReferer() string {
-	return r.referer
+func (ro ReqOptions) getReferer() string {
+	return ro.referer
 }
 
-func (r Request) getRange() string {
-	return r.byteRange
+func (ro ReqOptions) getRange() string {
+	return ro.byteRange
 }
 
 func ResolveHttp(ip string, domain, domainHost string, target string, port int, host string, referer string) error {
@@ -86,7 +86,7 @@ func ResolveHttp(ip string, domain, domainHost string, target string, port int, 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	setRequestHeader(resp)
 
-	res := &Response{}
+	res := &ResolveResponse{}
 	res.respStatus = resp.Status
 
 	fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
@@ -134,7 +134,7 @@ func ResolveHttps(ip string, domain, domainHost string, target string, host stri
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	setRequestHeader(resp)
 
-	res := &Response{
+	res := &ResolveResponse{
 		respStatus: resp.Status,
 	}
 
@@ -173,7 +173,7 @@ func SetTransport(domainName, ip string) http.Transport {
 		MaxVersion:         tls.VersionTLS13,
 	}
 
-	r := &Request{
+	r := &ReqOptions{
 		transport: transport,
 	}
 
@@ -192,7 +192,7 @@ func addRequestHeader(req *http.Request, host, referer string) {
 }
 
 func setRequestHeader(resp *http.Response) {
-	req := &Request{}
+	req := &ReqOptions{}
 
 	// optional
 	if len(resp.Request.Header.Values("host")) > 0 {
