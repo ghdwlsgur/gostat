@@ -13,39 +13,69 @@ import (
 	"github.com/tcnksm/go-httpstat"
 )
 
-type (
-	ReqOptions struct {
-		host      string
-		referer   string
-		byteRange string
-		transport http.Transport
-	}
+type ReqOptions struct {
+	Host      string
+	Referer   string
+	ByteRange string
+	Port      int
+	Transport http.Transport
+}
 
-	ResolveResponse struct {
-		respStatus string
-	}
-)
+type Address struct {
+	IP     string
+	Url    string
+	Host   string
+	Target string
+}
+
+type ResolveResponse struct {
+	respStatus string
+}
 
 func (rr ResolveResponse) getRespStatus() string {
 	return rr.respStatus
 }
 
 func (ro ReqOptions) getHost() string {
-	return ro.host
+	return ro.Host
 }
 
 func (ro ReqOptions) getReferer() string {
-	return ro.referer
+	return ro.Referer
 }
 
 func (ro ReqOptions) getRange() string {
-	return ro.byteRange
+	return ro.ByteRange
 }
 
-func ResolveHttp(ip string, domain, domainHost string, target string, port int, host string, referer string) error {
+func (ro ReqOptions) getPort() int {
+	return ro.Port
+}
+
+func (ro ReqOptions) getTransport() http.Transport {
+	return ro.Transport
+}
+
+func (addr Address) getIP() string {
+	return addr.IP
+}
+
+func (addr Address) getUrl() string {
+	return addr.Url
+}
+
+func (addr Address) getHost() string {
+	return addr.Host
+}
+
+func (addr Address) getTarget() string {
+	return addr.Target
+}
+
+func ResolveHttp(addr *Address, opt *ReqOptions) error {
 
 	netUrl := url.URL{}
-	ref := fmt.Sprintf("http://%s:%v@%s:%v", domainHost, port, ip, port)
+	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getHost(), opt.getPort(), addr.getIP(), opt.getPort())
 	urlProxy, err := netUrl.Parse(ref)
 	if err != nil {
 		return err
@@ -62,7 +92,7 @@ func ResolveHttp(ip string, domain, domainHost string, target string, port int, 
 		},
 	}
 
-	urlDomain := fmt.Sprintf("http://%s", domain)
+	urlDomain := fmt.Sprintf("http://%s", addr.Url)
 	req, err := http.NewRequest("GET", urlDomain, nil)
 	if err != nil {
 		panic(err)
@@ -72,7 +102,7 @@ func ResolveHttp(ip string, domain, domainHost string, target string, port int, 
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
 
-	addRequestHeader(req, host, referer)
+	addRequestHeader(req, opt.getHost(), opt.getReferer())
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -80,14 +110,15 @@ func ResolveHttp(ip string, domain, domainHost string, target string, port int, 
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(target), color.HiYellowString(ip), color.HiYellowString("=============="))
+	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
 	latencyWrapper(urlDomain)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	setRequestHeader(resp)
 
-	res := &ResolveResponse{}
-	res.respStatus = resp.Status
+	res := &ResolveResponse{
+		respStatus: resp.Status,
+	}
 
 	fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
 	printStatusToColor(res.getRespStatus())
@@ -97,10 +128,10 @@ func ResolveHttp(ip string, domain, domainHost string, target string, port int, 
 	return nil
 }
 
-func ResolveHttps(ip string, domain, domainHost string, target string, host string, referer string) error {
+func ResolveHttps(addr *Address, opt *ReqOptions) error {
 
-	transport := SetTransport(domain, ip)
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", domainHost), transport.TLSClientConfig)
+	transport := SetTransport(addr.getUrl(), addr.getIP())
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getHost()), transport.TLSClientConfig)
 	if err != nil {
 		return err
 	}
@@ -108,7 +139,7 @@ func ResolveHttps(ip string, domain, domainHost string, target string, host stri
 
 	client := &http.Client{Transport: &transport}
 
-	url := fmt.Sprintf("https://%s", domain)
+	url := fmt.Sprintf("https://%s", addr.getUrl())
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		panic(err)
@@ -119,7 +150,7 @@ func ResolveHttps(ip string, domain, domainHost string, target string, host stri
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
 
-	addRequestHeader(req, host, referer)
+	addRequestHeader(req, opt.getHost(), opt.getReferer())
 
 	// response
 	resp, err := client.Do(req)
@@ -128,7 +159,7 @@ func ResolveHttps(ip string, domain, domainHost string, target string, host stri
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(target), color.HiYellowString(ip), color.HiYellowString("=============="))
+	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
 	latencyWrapper(url)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
@@ -174,10 +205,10 @@ func SetTransport(domainName, ip string) http.Transport {
 	}
 
 	r := &ReqOptions{
-		transport: transport,
+		Transport: transport,
 	}
 
-	return r.transport
+	return r.getTransport()
 }
 
 func addRequestHeader(req *http.Request, host, referer string) {
@@ -196,18 +227,18 @@ func setRequestHeader(resp *http.Response) {
 
 	// optional
 	if len(resp.Request.Header.Values("host")) > 0 {
-		req.host = resp.Request.Header.Values("host")[0]
+		req.Host = resp.Request.Header.Values("host")[0]
 		PrintFunc("Host", req.getHost())
 	}
 
 	// optional
 	if len(resp.Request.Header.Values("referer")) > 0 {
-		req.referer = resp.Request.Header.Values("referer")[0]
+		req.Referer = resp.Request.Header.Values("referer")[0]
 		PrintFunc("Referer", req.getReferer())
 	}
 
 	// required
-	req.byteRange = resp.Request.Header.Values("range")[0]
+	req.ByteRange = resp.Request.Header.Values("range")[0]
 	PrintFunc("Range", req.getRange())
 	fmt.Println()
 }

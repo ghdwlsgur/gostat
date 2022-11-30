@@ -38,8 +38,6 @@ var (
 				panicRed(fmt.Errorf("up to one argument can be entered"))
 			}
 
-			urlHost = strings.Split(url, "/")[0]
-
 			target = strings.TrimSpace(viper.GetString("stat-target-domain"))
 			if target == "" {
 				panicRed(fmt.Errorf("please enter your target. ex) gostat stat -t naver.com"))
@@ -53,11 +51,23 @@ var (
 				panicRed(err)
 			}
 
+			urlHost = strings.Split(url, "/")[0]
 			if protocol == "http" {
 				port = viper.GetInt("port-number")
 
 				for _, ip := range ips {
-					err = internal.ResolveHttp(ip, url, urlHost, target, port, host, referer)
+					err = internal.ResolveHttp(
+						&internal.Address{
+							IP:     ip,
+							Url:    url,
+							Host:   urlHost,
+							Target: target,
+						},
+						&internal.ReqOptions{
+							Host:    host,
+							Referer: referer,
+							Port:    port,
+						})
 					if err != nil {
 						panicRed(err)
 					}
@@ -66,7 +76,18 @@ var (
 
 			if protocol == "https" {
 				for _, ip := range ips {
-					err = internal.ResolveHttps(ip, url, urlHost, target, host, referer)
+					err = internal.ResolveHttps(
+						&internal.Address{
+							IP:     ip,
+							Url:    url,
+							Host:   urlHost,
+							Target: target,
+						},
+						&internal.ReqOptions{
+							Host:    host,
+							Referer: referer,
+							Port:    port,
+						})
 					if err != nil {
 						panicRed(err)
 					}
