@@ -59,7 +59,7 @@ var (
 
 				for _, ip := range ips {
 
-					err = internal.RequestResolveHTTP(ip.String(), url, urlHost, target, port, host, referer)
+					err = internal.ResolveHttp(ip.String(), url, urlHost, target, port, host, referer)
 					if err != nil {
 						panicRed(err)
 					}
@@ -69,7 +69,7 @@ var (
 			if protocol == "https" {
 				for _, ip := range ips {
 					if net.ParseIP(ip.String()).To4() != nil {
-						err = internal.RequestResolveHTTPS(ip.String(), url, urlHost, target, host, referer)
+						err = internal.ResolveHttps(ip.String(), url, urlHost, target, host, referer)
 						if err != nil {
 							panicRed(err)
 						}

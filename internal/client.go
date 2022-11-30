@@ -60,3 +60,15 @@ func stringFormat(word string) string {
 	}
 	return wordFormat
 }
+
+func printStatusToColor(status string) {
+
+	stat := status[0:1]
+	if stat == "5" {
+		PrintFunc("Status", color.HiRedString(status))
+	} else if stat == "4" {
+		PrintFunc("Status", color.HiYellowString(status))
+	} else {
+		PrintFunc("Status", color.HiGreenString(status))
+	}
+}
