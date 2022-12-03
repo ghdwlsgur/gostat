@@ -14,7 +14,15 @@
 
 # Overview
 
-An Interactive CLI Tool that diagnoses whether certificates are applied with edge servers(a record address) as proxy.
+An Interactive CLI Tool that Receives the response of the URL to each "A record" of the target domain to the url using the http or https protocol.
+
+# Why
+
+I had to proxy to the origin domain's A record address to get a response from the target domain's content, as in the example below.
+
+```bash
+curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223. 130.195.95' 'https://www.naver.com/include/themecast/targetAndPanels.json'
+```
 
 # Installation
 
@@ -31,6 +39,28 @@ brew upgrade gostat
 ```
 
 ### [Download](https://github.com/ghdwlsgur/gostat/releases)
+
+# How to use
+
+### `request`
+
+```bash
+gostat request https://www.naver.com -t naver.com
+```
+
+<div align="center">
+<img src="https://user-images.githubusercontent.com/77400522/205435663-8921c405-58ea-4452-9f45-58e4d3b90c5a.png">
+</div>
+
+### `request` - add referer
+
+```
+gostat requet https://www.naver.com -t naver.com -r http://naver.com
+```
+
+<div align="center">
+<img src="https://user-images.githubusercontent.com/77400522/205435871-8d021d37-e2ad-4d30-8d52-c382d28859d3.png">
+</div>
 
 # License
 
