@@ -10,8 +10,13 @@ import (
 )
 
 func getProtocol(data []string) (string, error) {
-	if len(data[0]) > 5 && data[0] != "http" || data[0] != "https" {
-		return "", fmt.Errorf("the input format is incorrect")
+	if len(data[0]) > 5 {
+		if data[0] != "http" {
+			return "", fmt.Errorf("the input format is incorrect")
+		}
+		if data[0] != "https" {
+			return "", fmt.Errorf("the input format is incorrect")
+		}
 	}
 	return data[0], nil
 }
