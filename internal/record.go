@@ -2,6 +2,7 @@ package internal
 
 import "net"
 
+// Get only ipv4 values, not ipv6
 func GetRecordIPv4(domainName string) ([]string, error) {
 
 	ips, err := net.LookupIP(domainName)

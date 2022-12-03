@@ -7,6 +7,7 @@ import (
 	"github.com/fatih/color"
 )
 
+// Split long titles to fit output format.
 func PrintSplitFunc(word, field string) {
 	for i, n := range strings.Split(word, ",") {
 		if i == 0 {
@@ -17,6 +18,7 @@ func PrintSplitFunc(word, field string) {
 	}
 }
 
+// Title text is displayed in black letters.
 func PrintFunc(field, value string) {
 	if len(field) < 8 {
 		fmt.Printf("%s\t\t%s\n", color.HiBlackString(field), value)

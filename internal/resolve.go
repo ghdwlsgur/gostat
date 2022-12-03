@@ -13,21 +13,24 @@ import (
 	"github.com/tcnksm/go-httpstat"
 )
 
+// A structure with fields required for request options, range is fixed as byte=0-1 by default.
 type ReqOptions struct {
-	Host      string
-	Referer   string
-	ByteRange string
-	Port      int
+	Host      string `json:"domain-host"`
+	Referer   string `json:"referer"`
+	ByteRange string `json:"range"`
+	Port      int    `json:"port"`
 	Transport http.Transport
 }
 
+// Structure with fields for address information.
 type Address struct {
-	IP     string
-	Url    string
-	Host   string
-	Target string
+	IP         string `json:"ip"`
+	Url        string `json:"url"`
+	DomainName string `json:"domainName"`
+	Target     string `json:"target"`
 }
 
+// Structure with response status code as field.
 type ResolveResponse struct {
 	respStatus string
 }
@@ -64,19 +67,20 @@ func (addr Address) getUrl() string {
 	return addr.Url
 }
 
-func (addr Address) getHost() string {
-	return addr.Host
+func (addr Address) getDomainName() string {
+	return addr.DomainName
 }
 
 func (addr Address) getTarget() string {
 	return addr.Target
 }
 
+// Applied when using HTTP protocol.
 func ResolveHttp(addr *Address, opt *ReqOptions) error {
 
-	netUrl := url.URL{}
-	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getHost(), opt.getPort(), addr.getIP(), opt.getPort())
-	urlProxy, err := netUrl.Parse(ref)
+	netURL := url.URL{}
+	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
+	urlProxy, err := netURL.Parse(ref)
 	if err != nil {
 		return err
 	}
@@ -110,7 +114,7 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
+	fmt.Printf("\n\t%s %s [%s] %s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
 	latencyWrapper(urlDomain)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
@@ -128,10 +132,11 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	return nil
 }
 
+// Applied when using HTTPS protocol.
 func ResolveHttps(addr *Address, opt *ReqOptions) error {
 
 	transport := SetTransport(addr.getUrl(), addr.getIP())
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getHost()), transport.TLSClientConfig)
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
 	if err != nil {
 		return err
 	}
@@ -159,7 +164,7 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n\t%s%s [%s]%s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
+	fmt.Printf("\n\t%s %s [%s] %s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
 	latencyWrapper(url)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))

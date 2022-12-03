@@ -4,6 +4,7 @@ import (
 	"testing"
 )
 
+// Testing latency code.
 func TestHttpLatency(t *testing.T) {
 	results := make(chan Result)
 	doneC := make(chan struct{})

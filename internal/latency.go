@@ -12,11 +12,13 @@ import (
 	"github.com/tcnksm/go-httpstat"
 )
 
+// A structure that has the target URL and response latency from the URL as fields.
 type Result struct {
 	URL     string
 	Latency int
 }
 
+// The latency response value is obtained through a channel.
 func GatherLatencies(url string, results chan<- Result, doneC <-chan struct{}) {
 	resultC := make(chan Result)
 	go getLatencies(url, resultC)
