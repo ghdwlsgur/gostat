@@ -9,6 +9,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/ghdwlsgur/gossl)](https://goreportcard.com/report/github.com/ghdwlsgur/gostat)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/4d8e0ef64d1348c19d0ccbae23290eb7)](https://www.codacy.com/gh/ghdwlsgur/gostat/dashboard?utm_source=github.com&utm_medium=referral&utm_content=ghdwlsgur/gostat&utm_campaign=Badge_Grade)
 [![Maintainability](https://api.codeclimate.com/v1/badges/1d8e562559047191efd8/maintainability)](https://codeclimate.com/github/ghdwlsgur/gostat/maintainability)
+[![circle ci](https://circleci.com/gh/ghdwlsgur/gostat.svg?style=svg)](https://circleci.com/gh/ghdwlsgur/gostat)
 
 </div>
 
@@ -60,6 +61,16 @@ gostat requet https://www.naver.com -t naver.com -r http://naver.com
 
 <div align="center">
 <img src="https://user-images.githubusercontent.com/77400522/205435871-8d021d37-e2ad-4d30-8d52-c382d28859d3.png">
+</div>
+
+### `request` - add host
+
+```
+gostat requet https://www.naver.com -t naver.com -r http://naver.com -H naver.com
+```
+
+<div align="center">
+<img src="https://user-images.githubusercontent.com/77400522/205436341-a7d713b6-1c71-40b8-b76c-177abd722547.png">
 </div>
 
 # License
