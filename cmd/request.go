@@ -9,36 +9,45 @@ import (
 	"github.com/spf13/viper"
 )
 
+func getProtocol(data []string) (string, error) {
+	if len(data[0]) > 5 && data[0] != "http" || data[0] != "https" {
+		return "", fmt.Errorf("the input format is incorrect")
+	}
+	return data[0], nil
+}
+
 var (
 	requestCommand = &cobra.Command{
 		Use:   "request",
-		Short: "Exec `gostat request`",
-		Long:  "Receives the response of the url to each A record of the target domain to the url using the http or https protocol.",
+		Short: "Exec `gostat request https://domain.com -t domain.com`",
+		Long:  "Receives the response of the URL to each A record of the target domain to the url using the http or https protocol.",
 		Run: func(_ *cobra.Command, args []string) {
 			var (
-				err     error
-				url     string
-				urlHost string
-				target  string
+				err        error
+				url        string
+				domainName string
+				target     string
 			)
 
 			var (
-				port    int
 				host    string
 				referer string
 			)
 
-			uri := args[0]
-			splitData := strings.Split(uri, "://")
-
-			protocol := splitData[0]
-			url = splitData[1]
-
 			if len(args) > 1 {
 				panicRed(fmt.Errorf("up to one argument can be entered"))
 			}
+			splitData := strings.Split(args[0], "://")
 
-			target = strings.TrimSpace(viper.GetString("stat-target-domain"))
+			// Check the url format.
+			protocol, err := getProtocol(splitData)
+			if err != nil {
+				panicRed(err)
+			}
+
+			url = splitData[1]
+
+			target = strings.TrimSpace(viper.GetString("target-domain"))
 			if target == "" {
 				panicRed(fmt.Errorf("please enter your target. ex) gostat stat -t naver.com"))
 			}
@@ -51,23 +60,27 @@ var (
 				panicRed(err)
 			}
 
-			urlHost = strings.Split(url, "/")[0]
-			if protocol == "http" {
-				port = viper.GetInt("port-number")
+			domainName = strings.Split(url, "/")[0]
 
+			// ! [required] Enter your address information.
+			addrInfo := &internal.Address{
+				Url:        url,
+				DomainName: domainName,
+				Target:     target,
+			}
+
+			// [optional] It is additionally saved when entering a header or referrer.
+			requestOptions := &internal.ReqOptions{
+				Host:    host,
+				Referer: referer,
+			}
+
+			if protocol == "http" {
 				for _, ip := range ips {
-					err = internal.ResolveHttp(
-						&internal.Address{
-							IP:     ip,
-							Url:    url,
-							Host:   urlHost,
-							Target: target,
-						},
-						&internal.ReqOptions{
-							Host:    host,
-							Referer: referer,
-							Port:    port,
-						})
+					addrInfo.IP = ip
+					requestOptions.Port = viper.GetInt("port-number")
+
+					err = internal.ResolveHttp(addrInfo, requestOptions)
 					if err != nil {
 						panicRed(err)
 					}
@@ -76,18 +89,9 @@ var (
 
 			if protocol == "https" {
 				for _, ip := range ips {
-					err = internal.ResolveHttps(
-						&internal.Address{
-							IP:     ip,
-							Url:    url,
-							Host:   urlHost,
-							Target: target,
-						},
-						&internal.ReqOptions{
-							Host:    host,
-							Referer: referer,
-							Port:    port,
-						})
+					addrInfo.IP = ip
+
+					err = internal.ResolveHttps(addrInfo, requestOptions)
 					if err != nil {
 						panicRed(err)
 					}
@@ -101,12 +105,12 @@ var (
 func init() {
 	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
 	requestCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
-	requestCommand.Flags().StringP("http-host", "H", "", "[optional] The host to put in the request headers.")
+	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
 	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
 
-	viper.BindPFlag("stat-target-domain", requestCommand.Flags().Lookup("target"))
+	viper.BindPFlag("target-domain", requestCommand.Flags().Lookup("target"))
 	viper.BindPFlag("port-number", requestCommand.Flags().Lookup("port"))
-	viper.BindPFlag("host-name", requestCommand.Flags().Lookup("http-host"))
+	viper.BindPFlag("host-name", requestCommand.Flags().Lookup("host"))
 	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
 
 	rootCmd.AddCommand(requestCommand)
