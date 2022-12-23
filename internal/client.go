@@ -28,21 +28,54 @@ func PrintFunc(field, value string) {
 }
 
 func printStatusFormat(field string, valueA string, valueB string) {
-	if len(field) >= 24 {
-		fmt.Printf("\t%s\t%v\t\t%v\n", field, valueA, valueB)
-		return
+
+	fieldLength := len(field) - 9
+
+	if fieldLength < 8 {
+		if len(valueA) <= 8 {
+			fmt.Printf("\t%s\t\t\t%v\t\t\t\t%s\n", field, valueA, valueB)
+			return
+		}
+		if len(valueA) <= 16 {
+			fmt.Printf("\t%s\t\t\t%v\t\t\t%s\n", field, valueA, valueB)
+			return
+		}
+		if len(valueA) <= 24 {
+			fmt.Printf("\t%s\t\t\t%v\t\t%s\n", field, valueA, valueB)
+			return
+		}
 	}
-	if len(field) <= 16 {
-		fmt.Printf("\t%s\t\t\t%v\t\t%s\n", field, valueA, valueB)
-		return
+
+	if fieldLength < 16 {
+		if len(valueA) <= 8 {
+			fmt.Printf("\t%s\t%v\t\t\t\t%s\n", field, valueA, valueB)
+			return
+		}
+		if len(valueA) <= 16 {
+			fmt.Printf("\t%s\t\t%v\t\t\t%s\n", field, valueA, valueB)
+			return
+		}
+		if len(valueA) <= 24 {
+			fmt.Printf("\t%s\t\t%v\t\t%s\n", field, valueA, valueB)
+			return
+		}
 	}
-	if len(valueA) <= 16 {
-		fmt.Printf("\t%s\t\t%v\t\t\t%s\n", field, valueA, valueB)
-		return
-	} else {
-		fmt.Printf("\t%s\t\t%v\t\t%v\n", field, valueA, valueB)
-		return
+
+	if fieldLength < 24 {
+		if len(valueA) <= 8 {
+			fmt.Printf("\t%s\t%v\t\t\t\t%s\n", field, valueA, valueB)
+			return
+		}
+		if len(valueA) <= 16 {
+			fmt.Printf("\t%s\t%v\t\t\t%s\n", field, valueA, valueB)
+			return
+		}
+		if len(valueA) <= 24 {
+			fmt.Printf("\t%s\t%v\t\t%s\n", field, valueA, valueB)
+			return
+		}
 	}
+
 }
 
 func stringFormat(word string) string {

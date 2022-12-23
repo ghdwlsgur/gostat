@@ -114,7 +114,7 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n\t%s %s [%s] %s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
+	fmt.Printf("\n%s [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
 	latencyWrapper(urlDomain)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
@@ -164,7 +164,7 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n\t%s %s [%s] %s\n\n", color.HiYellowString("=============="), color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()), color.HiYellowString("=============="))
+	fmt.Printf("\n%s [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
 	latencyWrapper(url)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
