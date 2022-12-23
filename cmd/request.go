@@ -52,20 +52,19 @@ var (
 
 			url = splitData[1]
 
-			target = strings.TrimSpace(viper.GetString("target-domain"))
-			if target == "" {
-				panicRed(fmt.Errorf("please enter your target. ex) gostat stat -t naver.com"))
-			}
-
 			host = strings.TrimSpace(viper.GetString("host-name"))
 			referer = strings.TrimSpace(viper.GetString("referer-name"))
+			domainName = strings.Split(url, "/")[0]
+
+			target = strings.TrimSpace(viper.GetString("target-domain"))
+			if target == "" {
+				target = domainName
+			}
 
 			ips, err := internal.GetRecordIPv4(target)
 			if err != nil {
 				panicRed(err)
 			}
-
-			domainName = strings.Split(url, "/")[0]
 
 			// ! [required] Enter your address information.
 			addrInfo := &internal.Address{
