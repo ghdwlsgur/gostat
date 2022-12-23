@@ -5,5 +5,5 @@ import (
 )
 
 func main() {
-	cmd.Execute("0.0.6")
+	cmd.Execute("1.0.0")
 }
