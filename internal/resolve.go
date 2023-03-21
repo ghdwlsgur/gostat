@@ -219,7 +219,8 @@ func SetTransport(domainName, ip string) http.Transport {
 func addRequestHeader(req *http.Request, host, referer string) {
 	req.Header.Add("Range", "bytes=0-1")
 	if host != "" {
-		req.Header.Add("Host", host)
+		// req.Header.Add("Host", host)
+		req.Host = host
 	}
 
 	if referer != "" {
