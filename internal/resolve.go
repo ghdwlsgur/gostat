@@ -87,7 +87,6 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-
 			Dial: (&net.Dialer{
 				Timeout: 5 * time.Second,
 			}).Dial,
