@@ -35,8 +35,9 @@ var (
 			)
 
 			var (
-				host    string
-				referer string
+				host          string
+				referer       string
+				authorization string
 			)
 
 			if len(args) > 1 {
@@ -54,6 +55,8 @@ var (
 
 			host = strings.TrimSpace(viper.GetString("host-name"))
 			referer = strings.TrimSpace(viper.GetString("referer-name"))
+			authorization = strings.TrimSpace(viper.GetString("authorization-name"))
+
 			domainName = strings.Split(url, "/")[0]
 
 			target = strings.TrimSpace(viper.GetString("target-domain"))
@@ -75,8 +78,9 @@ var (
 
 			// [optional] It is additionally saved when entering a header or referrer.
 			requestOptions := &internal.ReqOptions{
-				Host:    host,
-				Referer: referer,
+				Host:          host,
+				Referer:       referer,
+				Authorization: authorization,
 			}
 
 			if protocol == "http" {
@@ -110,11 +114,13 @@ func init() {
 	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
 	requestCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
 	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
+	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")
 	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
 
 	viper.BindPFlag("target-domain", requestCommand.Flags().Lookup("target"))
 	viper.BindPFlag("port-number", requestCommand.Flags().Lookup("port"))
 	viper.BindPFlag("host-name", requestCommand.Flags().Lookup("host"))
+	viper.BindPFlag("authorization-name", requestCommand.Flags().Lookup("authorization"))
 	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
 
 	rootCmd.AddCommand(requestCommand)

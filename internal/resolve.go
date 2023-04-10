@@ -15,11 +15,12 @@ import (
 
 // A structure with fields required for request options, range is fixed as byte=0-1 by default.
 type ReqOptions struct {
-	Host      string `json:"domain-host"`
-	Referer   string `json:"referer"`
-	ByteRange string `json:"range"`
-	Port      int    `json:"port"`
-	Transport http.Transport
+	Host          string `json:"domain-host"`
+	Authorization string `json:"authorization"`
+	Referer       string `json:"referer"`
+	ByteRange     string `json:"range"`
+	Port          int    `json:"port"`
+	Transport     http.Transport
 }
 
 // Structure with fields for address information.
@@ -37,6 +38,10 @@ type ResolveResponse struct {
 
 func (rr ResolveResponse) getRespStatus() string {
 	return rr.respStatus
+}
+
+func (ro ReqOptions) getAuthorization() string {
+	return ro.Authorization
 }
 
 func (ro ReqOptions) getHost() string {
@@ -105,7 +110,7 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
 
-	addRequestHeader(req, opt.getHost(), opt.getReferer())
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization())
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -154,7 +159,7 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
 
-	addRequestHeader(req, opt.getHost(), opt.getReferer())
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization())
 
 	// response
 	resp, err := client.Do(req)
@@ -215,7 +220,7 @@ func SetTransport(domainName, ip string) http.Transport {
 	return r.getTransport()
 }
 
-func addRequestHeader(req *http.Request, host, referer string) {
+func addRequestHeader(req *http.Request, host, referer, authorization string) {
 	req.Header.Add("Range", "bytes=0-1")
 	if host != "" {
 		// req.Header.Add("Host", host)
@@ -224,6 +229,10 @@ func addRequestHeader(req *http.Request, host, referer string) {
 
 	if referer != "" {
 		req.Header.Add("Referer", referer)
+	}
+
+	if authorization != "" {
+		req.Header.Add("Authorization", authorization)
 	}
 }
 
