@@ -141,6 +141,7 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 
 	transport := SetTransport(addr.getUrl(), addr.getIP())
 	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
+
 	if err != nil {
 		return err
 	}
@@ -203,7 +204,10 @@ func SetTransport(domainName, ip string) http.Transport {
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if addr == fmt.Sprintf("%s:443", domainName) {
 			addr = fmt.Sprintf("%s:443", ip)
+		} else if ip != "" {
+			addr = fmt.Sprintf("%s:443", ip)
 		}
+
 		return dialer.DialContext(ctx, network, addr)
 	}
 
