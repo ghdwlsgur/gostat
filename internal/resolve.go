@@ -243,19 +243,25 @@ func addRequestHeader(req *http.Request, host, referer, authorization string) {
 func setRequestHeader(resp *http.Response) {
 	req := &ReqOptions{}
 
-	// optional
+	// optional [Host]
 	if len(resp.Request.Header.Values("host")) > 0 {
 		req.Host = resp.Request.Header.Values("host")[0]
 		PrintFunc("Host", req.getHost())
 	}
 
-	// optional
+	// optional [Referer]
 	if len(resp.Request.Header.Values("referer")) > 0 {
 		req.Referer = resp.Request.Header.Values("referer")[0]
 		PrintFunc("Referer", req.getReferer())
 	}
 
-	// required
+	// optional [Authorization]
+	if len(resp.Request.Header.Values("Authorization")) > 0 {
+		req.Authorization = resp.Request.Header.Values("Authorization")[0]
+		PrintFunc("Authorization", req.getAuthorization())
+	}
+
+	// required [Range]
 	req.ByteRange = resp.Request.Header.Values("range")[0]
 	PrintFunc("Range", req.getRange())
 	fmt.Println()
