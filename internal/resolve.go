@@ -118,7 +118,12 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n%s [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+	if addr.getTarget() != addr.getIP() {
+		fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+	} else {
+		fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
+	}
+
 	latencyWrapper(urlDomain)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
@@ -169,7 +174,11 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("\n%s [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+	if addr.getTarget() != addr.getIP() {
+		fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+	} else {
+		fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
+	}
 	latencyWrapper(url)
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
