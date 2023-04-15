@@ -21,6 +21,31 @@ func getProtocol(data []string) (string, error) {
 	return data[0], nil
 }
 
+func returnIP(ips []string) <-chan string {
+	out := make(chan string)
+	go func() {
+		for _, ip := range ips {
+			out <- ip
+		}
+		close(out)
+	}()
+	return out
+}
+
+func resolveHTTPPuller(c <-chan string, reqOpt *internal.ReqOptions, addrInfo *internal.Address) {
+	go func() {
+		for n := range c {
+			addrInfo.IP = n
+			fmt.Println(n)
+		}
+
+		err := internal.ResolveHttp(addrInfo, reqOpt)
+		if err != nil {
+			panicRed(err)
+		}
+	}()
+}
+
 var (
 	requestCommand = &cobra.Command{
 		Use:   "request",
@@ -56,6 +81,7 @@ var (
 			host = strings.TrimSpace(viper.GetString("host-name"))
 			referer = strings.TrimSpace(viper.GetString("referer-name"))
 			authorization = strings.TrimSpace(viper.GetString("authorization-name"))
+			mode := viper.GetBool("attack-mode")
 
 			domainName = strings.Split(url, "/")[0]
 
@@ -81,18 +107,36 @@ var (
 				Host:          host,
 				Referer:       referer,
 				Authorization: authorization,
+				AttackMode:    mode,
 			}
 
-			if protocol == "http" {
-				for _, ip := range ips {
-					addrInfo.IP = ip
-					requestOptions.Port = viper.GetInt("port-number")
+			// if protocol == "http" {
+			// 	for _, ip := range ips {
+			// 		addrInfo.IP = ip
+			// 		requestOptions.Port = viper.GetInt("port-number")
 
-					err = internal.ResolveHttp(addrInfo, requestOptions)
-					if err != nil {
-						panicRed(err)
-					}
-				}
+			// 		err = internal.ResolveHttp(addrInfo, requestOptions)
+			// 		if err != nil {
+			// 			panicRed(err)
+			// 		}
+			// 	}
+			// }
+
+			if protocol == "http" {
+				// for _, ip := range ips {
+				// 	addrInfo.IP = ip
+				// 	requestOptions.Port = viper.GetInt("port-number")
+
+				// 	err = internal.ResolveHttp(addrInfo, requestOptions)
+				// 	if err != nil {
+				// 		panicRed(err)
+				// 	}
+				// }
+
+				in := returnIP(ips)
+				requestOptions.Port = viper.GetInt("port-number")
+				resolveHTTPPuller(in, requestOptions, addrInfo)
+
 			}
 
 			if protocol == "https" {
@@ -106,6 +150,27 @@ var (
 				}
 			}
 
+			// c := make(chan string)
+
+			// if mode {
+			// 	for {
+			// 		go func() {
+			// 			for _, ip := range ips {
+			// 				c <- ip
+			// 			}
+			// 		}()
+			// 		go func() {
+			// 			for {
+			// 				addrInfo.IP = <-c
+			// 				err = internal.ResolveHttps(addrInfo, requestOptions)
+			// 				if err != nil {
+			// 					panicRed(err)
+			// 				}
+			// 			}
+			// 		}()
+			// 	}
+			// }
+
 		},
 	}
 )
@@ -116,12 +181,14 @@ func init() {
 	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
 	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")
 	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
+	requestCommand.Flags().BoolP("attack", "a", false, "[optional] enable attack mode")
 
 	viper.BindPFlag("target-domain", requestCommand.Flags().Lookup("target"))
 	viper.BindPFlag("port-number", requestCommand.Flags().Lookup("port"))
 	viper.BindPFlag("host-name", requestCommand.Flags().Lookup("host"))
 	viper.BindPFlag("authorization-name", requestCommand.Flags().Lookup("authorization"))
 	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
+	viper.BindPFlag("attack-mode", requestCommand.Flags().Lookup("attack"))
 
 	rootCmd.AddCommand(requestCommand)
 }
