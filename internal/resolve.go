@@ -21,6 +21,7 @@ type ReqOptions struct {
 	ByteRange     string `json:"range"`
 	Port          int    `json:"port"`
 	Transport     http.Transport
+	AttackMode    bool `json:"attack-mode"`
 }
 
 // Structure with fields for address information.
@@ -58,6 +59,10 @@ func (ro ReqOptions) getRange() string {
 
 func (ro ReqOptions) getPort() int {
 	return ro.Port
+}
+
+func (ro ReqOptions) getAttackMode() bool {
+	return ro.AttackMode
 }
 
 func (ro ReqOptions) getTransport() http.Transport {
@@ -110,7 +115,7 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
 
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization())
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -165,7 +170,7 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
 	req = req.WithContext(ctx)
 
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization())
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
 
 	// response
 	resp, err := client.Do(req)
@@ -233,8 +238,12 @@ func SetTransport(domainName, ip string) http.Transport {
 	return r.getTransport()
 }
 
-func addRequestHeader(req *http.Request, host, referer, authorization string) {
-	req.Header.Add("Range", "bytes=0-1")
+func addRequestHeader(req *http.Request, host, referer, authorization string, attack bool) {
+
+	if !attack {
+		req.Header.Add("Range", "bytes=0-1")
+	}
+
 	if host != "" {
 		// req.Header.Add("Host", host)
 		req.Host = host
@@ -271,8 +280,10 @@ func setRequestHeader(resp *http.Response) {
 	}
 
 	// required [Range]
-	req.ByteRange = resp.Request.Header.Values("range")[0]
-	PrintFunc("Range", req.getRange())
+	if len(resp.Request.Header.Values("Range")) > 0 {
+		req.ByteRange = resp.Request.Header.Values("range")[0]
+		PrintFunc("Range", req.getRange())
+	}
 	fmt.Println()
 }
 
