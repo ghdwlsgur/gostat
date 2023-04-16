@@ -21,31 +21,6 @@ func getProtocol(data []string) (string, error) {
 	return data[0], nil
 }
 
-func returnIP(ips []string) <-chan string {
-	out := make(chan string)
-	go func() {
-		for _, ip := range ips {
-			out <- ip
-		}
-		close(out)
-	}()
-	return out
-}
-
-func resolveHTTPPuller(c <-chan string, reqOpt *internal.ReqOptions, addrInfo *internal.Address) {
-	go func() {
-		for n := range c {
-			addrInfo.IP = n
-			fmt.Println(n)
-		}
-
-		err := internal.ResolveHttp(addrInfo, reqOpt)
-		if err != nil {
-			panicRed(err)
-		}
-	}()
-}
-
 var (
 	requestCommand = &cobra.Command{
 		Use:   "request",
@@ -110,66 +85,36 @@ var (
 				AttackMode:    mode,
 			}
 
-			// if protocol == "http" {
-			// 	for _, ip := range ips {
-			// 		addrInfo.IP = ip
-			// 		requestOptions.Port = viper.GetInt("port-number")
-
-			// 		err = internal.ResolveHttp(addrInfo, requestOptions)
-			// 		if err != nil {
-			// 			panicRed(err)
-			// 		}
-			// 	}
-			// }
-
-			if protocol == "http" {
-				// for _, ip := range ips {
-				// 	addrInfo.IP = ip
-				// 	requestOptions.Port = viper.GetInt("port-number")
-
-				// 	err = internal.ResolveHttp(addrInfo, requestOptions)
-				// 	if err != nil {
-				// 		panicRed(err)
-				// 	}
-				// }
-
-				in := returnIP(ips)
-				requestOptions.Port = viper.GetInt("port-number")
-				resolveHTTPPuller(in, requestOptions, addrInfo)
-
-			}
-
-			if protocol == "https" {
-				for _, ip := range ips {
-					addrInfo.IP = ip
-
+			if mode {
+				for {
+					addrInfo.IP = target
 					err = internal.ResolveHttps(addrInfo, requestOptions)
-					if err != nil {
-						panicRed(err)
+				}
+			} else {
+
+				if protocol == "http" {
+					for _, ip := range ips {
+						addrInfo.IP = ip
+						requestOptions.Port = viper.GetInt("port-number")
+
+						err = internal.ResolveHttp(addrInfo, requestOptions)
+						if err != nil {
+							panicRed(err)
+						}
+					}
+				}
+
+				if protocol == "https" {
+					for _, ip := range ips {
+						addrInfo.IP = ip
+
+						err = internal.ResolveHttps(addrInfo, requestOptions)
+						if err != nil {
+							panicRed(err)
+						}
 					}
 				}
 			}
-
-			// c := make(chan string)
-
-			// if mode {
-			// 	for {
-			// 		go func() {
-			// 			for _, ip := range ips {
-			// 				c <- ip
-			// 			}
-			// 		}()
-			// 		go func() {
-			// 			for {
-			// 				addrInfo.IP = <-c
-			// 				err = internal.ResolveHttps(addrInfo, requestOptions)
-			// 				if err != nil {
-			// 					panicRed(err)
-			// 				}
-			// 			}
-			// 		}()
-			// 	}
-			// }
 
 		},
 	}
