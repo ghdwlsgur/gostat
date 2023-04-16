@@ -186,8 +186,10 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	}
 	latencyWrapper(url)
 
-	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
-	setRequestHeader(resp)
+	if !opt.getAttackMode() {
+		fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
+		setRequestHeader(resp)
+	}
 
 	res := &ResolveResponse{
 		respStatus: resp.Status,
