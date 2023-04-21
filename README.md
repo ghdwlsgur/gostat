@@ -23,6 +23,8 @@ This is an interactive CLI tool that uses the net/http package to make an HTTP G
 
 The motivation for creating this tool was that while using the curl command to inspect HTTP GET responses, I found that the options I used became increasingly varied, and the command itself became longer. Personally, I had customized the command with the options I frequently used along with request headers in my zshrc script. However, instead of using this method, I wanted to create a tool with fixed options and request header values that I typically use. I wanted to create a tool that could be useful for others who may have similar concerns or team members who could benefit from it.
 
+[Korean Document](https://ghdwlsgur.github.io/docs)
+
 ```bash
 curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223. 130.195.95' 'https://www.naver.com/include/themecast/targetAndPanels.json'
 ```
