@@ -129,7 +129,10 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 		fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
 	}
 
-	latencyWrapper(urlDomain)
+	ips, _ := GetRecordIPv4(urlDomain)
+	if len(ips) > 0 {
+		latencyWrapper(urlDomain)
+	}
 
 	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 	setRequestHeader(resp)
@@ -247,7 +250,6 @@ func addRequestHeader(req *http.Request, host, referer, authorization string, at
 	}
 
 	if host != "" {
-		// req.Header.Add("Host", host)
 		req.Host = host
 	}
 
