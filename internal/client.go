@@ -20,10 +20,27 @@ func PrintSplitFunc(word, field string) {
 
 // Title text is displayed in black letters.
 func PrintFunc(field, value string) {
+	switch field {
+	case "Last-Modified", "Content-Length", "Content-Type", "ETag":
+		printHiWhiteString(field, value)
+	default:
+		printHiBlackString(field, value)
+	}
+}
+
+func printHiBlackString(field, value string) {
 	if len(field) < 8 {
-		fmt.Printf("%s\t\t%s\n", color.HiBlackString(field), value)
+		fmt.Printf("%s\t\t%s\n", color.HiBlackString(field), color.HiBlackString(value))
 	} else {
-		fmt.Printf("%s\t%s\n", color.HiBlackString(field), value)
+		fmt.Printf("%s\t%s\n", color.HiBlackString(field), color.HiBlackString(value))
+	}
+}
+
+func printHiWhiteString(field, value string) {
+	if len(field) < 8 {
+		fmt.Printf("%s\t\t%s\n", color.HiBlackString(field), color.HiWhiteString(value))
+	} else {
+		fmt.Printf("%s\t%s\n", color.HiBlackString(field), color.HiWhiteString(value))
 	}
 }
 
