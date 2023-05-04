@@ -22,6 +22,7 @@ type ReqOptions struct {
 	Port          int    `json:"port"`
 	Transport     http.Transport
 	AttackMode    bool `json:"attack-mode"`
+	RequestCount  int
 }
 
 // Structure with fields for address information.
@@ -67,6 +68,10 @@ func (ro ReqOptions) getAttackMode() bool {
 
 func (ro ReqOptions) getTransport() http.Transport {
 	return ro.Transport
+}
+
+func (ro *ReqOptions) getRequestCount() int {
+	return ro.RequestCount
 }
 
 func (addr Address) getIP() string {
@@ -123,28 +128,36 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	if addr.getTarget() != addr.getIP() {
-		fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+	if !opt.getAttackMode() {
+		if addr.getTarget() != addr.getIP() {
+			fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+		} else {
+			fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
+		}
+
+		ips, _ := GetRecordIPv4(urlDomain)
+		if len(ips) > 0 {
+			latencyWrapper(urlDomain)
+		}
+
+		fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
+		setRequestHeader(resp)
+
+		res := &ResolveResponse{
+			respStatus: resp.Status,
+		}
+
+		fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
+		printStatusToColor(res.getRespStatus())
+
+		printResponse(resp)
 	} else {
-		fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
+		fmt.Printf("\r%s: %v, %s: %d",
+			color.HiBlackString("Status Code"),
+			resp.StatusCode,
+			color.HiBlackString("Reqeust Count"),
+			opt.getRequestCount())
 	}
-
-	ips, _ := GetRecordIPv4(urlDomain)
-	if len(ips) > 0 {
-		latencyWrapper(urlDomain)
-	}
-
-	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
-	setRequestHeader(resp)
-
-	res := &ResolveResponse{
-		respStatus: resp.Status,
-	}
-
-	fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
-	printStatusToColor(res.getRespStatus())
-
-	printResponse(resp)
 
 	return nil
 }
@@ -182,26 +195,31 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	if addr.getTarget() != addr.getIP() {
-		fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
-	} else {
-		fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
-	}
-	latencyWrapper(url)
-
 	if !opt.getAttackMode() {
+		if addr.getTarget() != addr.getIP() {
+			fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+		} else {
+			fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
+		}
+		latencyWrapper(url)
+
 		fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 		setRequestHeader(resp)
+
+		res := &ResolveResponse{
+			respStatus: resp.Status,
+		}
+
+		fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
+		printStatusToColor(res.getRespStatus())
+		printResponse(resp)
+	} else {
+		fmt.Printf("\r%s: %v, %s: %d",
+			color.HiBlackString("Status Code"),
+			resp.StatusCode,
+			color.HiBlackString("Reqeust Count"),
+			opt.getRequestCount())
 	}
-
-	res := &ResolveResponse{
-		respStatus: resp.Status,
-	}
-
-	fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
-	printStatusToColor(res.getRespStatus())
-
-	printResponse(resp)
 
 	return nil
 }

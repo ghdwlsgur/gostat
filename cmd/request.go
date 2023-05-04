@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ghdwlsgur/gostat/internal"
 	"github.com/spf13/cobra"
@@ -19,6 +20,31 @@ func getProtocol(data []string) (string, error) {
 		}
 	}
 	return data[0], nil
+}
+
+func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
+	for _, ip := range ips {
+		addrInfo.IP = ip
+		requestOptions.Port = viper.GetInt("port-number")
+
+		err := internal.ResolveHttp(addrInfo, requestOptions)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reqHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
+	for _, ip := range ips {
+		addrInfo.IP = ip
+
+		err := internal.ResolveHttps(addrInfo, requestOptions)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var (
@@ -86,32 +112,45 @@ var (
 			}
 
 			if mode {
-				for {
-					addrInfo.IP = target
-					err = internal.ResolveHttps(addrInfo, requestOptions)
+				var wg sync.WaitGroup
+				for i := 0; i < viper.GetInt("thread-count"); i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						for {
+							requestOptions.RequestCount++
+							addrInfo.IP = target
+
+							if protocol == "http" {
+								err = reqHTTP(ips, addrInfo, requestOptions)
+								if err != nil {
+									panicRed(err)
+								}
+							}
+
+							if protocol == "https" {
+								err = reqHTTPS(ips, addrInfo, requestOptions)
+								if err != nil {
+									panicRed(err)
+								}
+							}
+						}
+					}()
 				}
+				wg.Wait()
 			} else {
 
 				if protocol == "http" {
-					for _, ip := range ips {
-						addrInfo.IP = ip
-						requestOptions.Port = viper.GetInt("port-number")
-
-						err = internal.ResolveHttp(addrInfo, requestOptions)
-						if err != nil {
-							panicRed(err)
-						}
+					err = reqHTTP(ips, addrInfo, requestOptions)
+					if err != nil {
+						panicRed(err)
 					}
 				}
 
 				if protocol == "https" {
-					for _, ip := range ips {
-						addrInfo.IP = ip
-
-						err = internal.ResolveHttps(addrInfo, requestOptions)
-						if err != nil {
-							panicRed(err)
-						}
+					err = reqHTTPS(ips, addrInfo, requestOptions)
+					if err != nil {
+						panicRed(err)
 					}
 				}
 			}
@@ -123,6 +162,7 @@ var (
 func init() {
 	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
 	requestCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
+	requestCommand.Flags().IntP("thread", "n", 1, "[optional] thread")
 	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
 	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")
 	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
@@ -134,6 +174,7 @@ func init() {
 	viper.BindPFlag("authorization-name", requestCommand.Flags().Lookup("authorization"))
 	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
 	viper.BindPFlag("attack-mode", requestCommand.Flags().Lookup("attack"))
+	viper.BindPFlag("thread-count", requestCommand.Flags().Lookup("thread"))
 
 	rootCmd.AddCommand(requestCommand)
 }
