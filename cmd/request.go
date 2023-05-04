@@ -162,7 +162,7 @@ var (
 func init() {
 	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
 	requestCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
-	requestCommand.Flags().IntP("thread", "n", 1, "[optional] thread")
+	requestCommand.Flags().IntP("thread", "n", 1, "[optional] choose thread numbers")
 	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
 	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")
 	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
