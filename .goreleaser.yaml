@@ -1,3 +1,4 @@
+project_name: gostat
 before:
   hooks:
     - go mod tidy
@@ -20,18 +21,19 @@ builds:
       - all=-trimpath={{.Env.GOPATH}}
     ldflags:
       - -s -w
-      - -X main.govpnVersion=v0.1.1
+      - -X main.gostatVersion={{.Version}}
     ignore:
       - goos: windows
         goarch: arm64
 archives:
-  - replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      amd64: x86_64
-    format: tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64      
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
     files:
       - LICENSE
       - README.md
@@ -47,10 +49,11 @@ release:
     name: gostat
 brews:
   - name: gostat
+    homepage: "https://github.com/ghdwlsgur/gostat"
+    description: "An interactive cli tool that easily binds HTTPS certificates and diagnoses whether certificates are applied with edge servers as proxy."
     tap:
       owner: ghdwlsgur
       name: homebrew-gostat
     commit_author:
       name: ghdwlsgur
-      email: redmax45@naver.com
-    description: "An interactive cli tool that easily binds HTTPS certificates and diagnoses whether certificates are applied with edge servers as proxy."
+      email: vjinhyeokv@gmail.com
