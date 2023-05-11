@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: /go/src/github.com/ghdwlsgur/gostat
     docker:
-      - image: golang:1.19
+      - image: golang:1.20.4
     environment:
       GOPATH: /go
     steps:
@@ -14,7 +14,7 @@ jobs:
             GO111MODULE: "on"
           command: bash scripts/deploy.sh test_with_circleci
 workflows:
-  build:
+  build-workflow:
     jobs:
       - build:
           filters:
