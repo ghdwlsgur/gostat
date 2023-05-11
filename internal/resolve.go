@@ -268,7 +268,7 @@ func addRequestHeader(req *http.Request, host, referer, authorization string, at
 	}
 
 	if host != "" {
-		req.Host = host
+		req.Header.Add("Host", host)
 	}
 
 	if referer != "" {
@@ -284,7 +284,7 @@ func setRequestHeader(resp *http.Response) {
 	req := &ReqOptions{}
 
 	// optional [Host]
-	if len(resp.Request.Header.Values("host")) > 0 {
+	if len(resp.Request.Header.Values("Host")) > 0 {
 		req.Host = resp.Request.Header.Values("host")[0]
 		PrintFunc("Host", req.getHost())
 	}
