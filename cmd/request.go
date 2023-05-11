@@ -52,7 +52,7 @@ var (
 		Use:   "request",
 		Short: "Exec `gostat request https://domain.com -t domain.com`",
 		Long:  "Receives the response of the URL to each A record of the target domain to the url using the http or https protocol.",
-		Run: func(_ *cobra.Command, args []string) {
+		Run: func(cmd *cobra.Command, args []string) {
 			var (
 				err        error
 				url        string
@@ -65,6 +65,10 @@ var (
 				referer       string
 				authorization string
 			)
+
+			if err := cobra.MinimumNArgs(1)(cmd, args); err != nil {
+				panicRed(err)
+			}
 
 			if len(args) > 1 {
 				panicRed(fmt.Errorf("up to one argument can be entered"))
