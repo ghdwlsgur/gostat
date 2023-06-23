@@ -195,8 +195,6 @@ var (
 				AttackMode:    mode,
 			}
 
-			fmt.Println(dashboard)
-			fmt.Println(mode)
 			if dashboard {
 				var wg sync.WaitGroup
 				for i := 0; i < 1; i++ {
