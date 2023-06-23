@@ -64,9 +64,11 @@ func reqDashboardonHTTPS(ips []string, addrInfo *internal.Address, requestOption
 delay:
 	for {
 		select {
-		case <-uiEvents:
-			os.Exit(1)
-			break delay
+		case e := <-uiEvents:
+			if e.Type == ui.KeyboardEvent && (e.ID == "q" || e.ID == "<C-c>") {
+				os.Exit(0)
+				break delay
+			}
 		default:
 			for i, ip := range ips {
 
