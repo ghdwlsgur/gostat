@@ -162,6 +162,38 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	return nil
 }
 
+func GetStatusCodeonHttps(addr *Address, opt *ReqOptions) (int, string, error) {
+
+	transport := SetTransport(addr.getUrl(), addr.getIP())
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
+	if err != nil {
+		return 0, "", err
+	}
+	defer conn.Close()
+
+	client := &http.Client{Transport: &transport}
+
+	url := fmt.Sprintf("https://%s", addr.getUrl())
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	var result httpstat.Result
+	ctx := httpstat.WithHTTPStat(req.Context(), &result)
+	req = req.WithContext(ctx)
+
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode, addr.getIP(), nil
+}
+
 // Applied when using HTTPS protocol.
 func ResolveHttps(addr *Address, opt *ReqOptions) error {
 
@@ -218,7 +250,12 @@ func ResolveHttps(addr *Address, opt *ReqOptions) error {
 			color.HiBlackString("Status Code"),
 			resp.StatusCode,
 			color.HiBlackString("Reqeust Count"),
-			opt.getRequestCount())
+			opt.getRequestCount(),
+		)
+		if resp.StatusCode/100 != 2 {
+			fmt.Printf(", %s: %s\n", color.HiBlackString("IP"), color.HiYellowString(addr.getIP()))
+		}
+
 	}
 
 	return nil

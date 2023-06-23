@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/ghdwlsgur/gostat/internal"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -35,6 +38,59 @@ func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.
 	return nil
 }
 
+func reqDashboardonHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
+	if err := ui.Init(); err != nil {
+		fmt.Println(err)
+	}
+	defer ui.Close()
+
+	sbc := widgets.NewStackedBarChart()
+	sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", addrInfo.DomainName)
+	sbc.Labels = ips
+	sbc.Data = make([][]float64, 9)
+	sbc.SetRect(0, 0, 85, 30)
+	sbc.BarWidth = 20
+	sbc.BorderStyle.Fg = 7
+	sbc.BorderStyle.Bg = 0
+
+	sbc.LabelStyles = []ui.Style{
+		{Fg: 7},
+	}
+	sbc.NumStyles = []ui.Style{
+		{Modifier: ui.ModifierClear},
+	}
+	uiEvents := ui.PollEvents()
+
+delay:
+	for {
+		select {
+		case <-uiEvents:
+			os.Exit(1)
+			break delay
+		default:
+			for i, ip := range ips {
+
+				addrInfo.IP = ip
+				statusCode, edgeIP, err := internal.GetStatusCodeonHttps(addrInfo, requestOptions)
+				if err != nil {
+					return err
+				}
+				sbc.BarColors = dynamicStatusCodeColor(statusCode, sbc.BarColors)
+
+				if edgeIP == ip {
+					sbc.Data[i] = append(sbc.Data[i], float64(statusCode))
+				}
+
+				ui.Render(sbc)
+				if len(sbc.Data[0]) == 9 && i == len(ips)-1 {
+					sbc.Data = make([][]float64, 9)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func reqHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
 	for _, ip := range ips {
 		addrInfo.IP = ip
@@ -45,6 +101,29 @@ func reqHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal
 		}
 	}
 	return nil
+}
+
+func dynamicStatusCodeColor(statusCode int, sbcColor []ui.Color) []ui.Color {
+	// ColorBlack   Color = 0
+	// ColorRed     Color = 1
+	// ColorGreen   Color = 2
+	// ColorYellow  Color = 3
+	// ColorBlue    Color = 4
+	// ColorMagenta Color = 5
+	// ColorCyan    Color = 6
+	// ColorWhite   Color = 7
+
+	switch statusCode / 100 {
+	case 2:
+		sbcColor = []ui.Color{2} // Green
+	case 3:
+		sbcColor = []ui.Color{4} // Blue
+	case 4:
+		sbcColor = []ui.Color{3} // Yellow
+	case 5:
+		sbcColor = []ui.Color{1} // Red
+	}
+	return sbcColor
 }
 
 var (
@@ -87,6 +166,7 @@ var (
 			referer = strings.TrimSpace(viper.GetString("referer-name"))
 			authorization = strings.TrimSpace(viper.GetString("authorization-name"))
 			mode := viper.GetBool("attack-mode")
+			dashboard := viper.GetBool("dashboard-mode")
 
 			domainName = strings.Split(url, "/")[0]
 
@@ -113,6 +193,37 @@ var (
 				Referer:       referer,
 				Authorization: authorization,
 				AttackMode:    mode,
+			}
+
+			fmt.Println(dashboard)
+			fmt.Println(mode)
+			if dashboard {
+				var wg sync.WaitGroup
+				for i := 0; i < 1; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						for {
+							requestOptions.RequestCount++
+							addrInfo.IP = target
+
+							if protocol == "http" {
+								err = reqHTTP(ips, addrInfo, requestOptions)
+								if err != nil {
+									panicRed(err)
+								}
+							}
+
+							if protocol == "https" {
+								err = reqDashboardonHTTPS(ips, addrInfo, requestOptions)
+								if err != nil {
+									panicRed(err)
+								}
+							}
+						}
+					}()
+				}
+				wg.Wait()
 			}
 
 			if mode {
@@ -171,6 +282,7 @@ func init() {
 	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")
 	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
 	requestCommand.Flags().BoolP("attack", "a", false, "[optional] enable attack mode")
+	requestCommand.Flags().BoolP("dashboard", "d", false, "[optional] enable dashboard")
 
 	viper.BindPFlag("target-domain", requestCommand.Flags().Lookup("target"))
 	viper.BindPFlag("port-number", requestCommand.Flags().Lookup("port"))
@@ -179,6 +291,7 @@ func init() {
 	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
 	viper.BindPFlag("attack-mode", requestCommand.Flags().Lookup("attack"))
 	viper.BindPFlag("thread-count", requestCommand.Flags().Lookup("thread"))
+	viper.BindPFlag("dashboard-mode", requestCommand.Flags().Lookup("dashboard"))
 
 	rootCmd.AddCommand(requestCommand)
 }
