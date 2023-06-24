@@ -30,7 +30,7 @@ func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.
 		addrInfo.IP = ip
 		requestOptions.Port = viper.GetInt("port-number")
 
-		err := internal.ResolveHttp(addrInfo, requestOptions)
+		err := internal.ResolveHTTP(addrInfo, requestOptions)
 		if err != nil {
 			return err
 		}
@@ -38,27 +38,28 @@ func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.
 	return nil
 }
 
-func reqDashboardonHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
+func reqDashboard(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string) error {
 	if err := ui.Init(); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	defer ui.Close()
 
 	sbc := widgets.NewStackedBarChart()
 	sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", addrInfo.DomainName)
+	sbc.TitleStyle.Bg = 0
 	sbc.Labels = ips
 	sbc.Data = make([][]float64, 9)
 	sbc.SetRect(0, 0, 85, 30)
 	sbc.BarWidth = 20
 	sbc.BorderStyle.Fg = 7
 	sbc.BorderStyle.Bg = 0
-
 	sbc.LabelStyles = []ui.Style{
-		{Fg: 7},
+		{Fg: 7, Bg: 0, Modifier: ui.ModifierClear},
 	}
 	sbc.NumStyles = []ui.Style{
-		{Modifier: ui.ModifierClear},
+		{Bg: 0, Modifier: ui.ModifierClear},
 	}
+
 	uiEvents := ui.PollEvents()
 
 delay:
@@ -69,24 +70,47 @@ delay:
 				os.Exit(0)
 				break delay
 			}
+
 		default:
 			for i, ip := range ips {
 
 				addrInfo.IP = ip
-				statusCode, edgeIP, err := internal.GetStatusCodeonHttps(addrInfo, requestOptions)
-				if err != nil {
-					return err
-				}
-				sbc.BarColors = dynamicStatusCodeColor(statusCode, sbc.BarColors)
+				requestOptions.Port = viper.GetInt("port-number")
+				switch protocol {
+				case "https":
+					statusCode, edgeIP, err := internal.GetStatusCodeOnHTTPS(addrInfo, requestOptions)
+					if err != nil {
+						return err
+					}
+					sbc.BarColors = dynamicStatusCodeColor(statusCode, sbc.BarColors)
 
-				if edgeIP == ip {
-					sbc.Data[i] = append(sbc.Data[i], float64(statusCode))
+					if edgeIP == ip {
+						sbc.Data[i] = append(sbc.Data[i], float64(statusCode))
+					}
+
+					ui.Render(sbc)
+					if len(sbc.Data[0]) == 9 && i == len(ips)-1 {
+						sbc.Data = make([][]float64, 9)
+					}
+
+				case "http":
+					statusCode, edgeIP, err := internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
+					if err != nil {
+						return err
+					}
+
+					sbc.BarColors = dynamicStatusCodeColor(statusCode, sbc.BarColors)
+
+					if edgeIP == ip {
+						sbc.Data[i] = append(sbc.Data[i], float64(statusCode))
+					}
+
+					ui.Render(sbc)
+					if len(sbc.Data[0]) == 9 && i == len(ips)-1 {
+						sbc.Data = make([][]float64, 9)
+					}
 				}
 
-				ui.Render(sbc)
-				if len(sbc.Data[0]) == 9 && i == len(ips)-1 {
-					sbc.Data = make([][]float64, 9)
-				}
 			}
 		}
 	}
@@ -97,7 +121,7 @@ func reqHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal
 	for _, ip := range ips {
 		addrInfo.IP = ip
 
-		err := internal.ResolveHttps(addrInfo, requestOptions)
+		err := internal.ResolveHTTPS(addrInfo, requestOptions)
 		if err != nil {
 			return err
 		}
@@ -207,18 +231,9 @@ var (
 							requestOptions.RequestCount++
 							addrInfo.IP = target
 
-							if protocol == "http" {
-								err = reqHTTP(ips, addrInfo, requestOptions)
-								if err != nil {
-									panicRed(err)
-								}
-							}
-
-							if protocol == "https" {
-								err = reqDashboardonHTTPS(ips, addrInfo, requestOptions)
-								if err != nil {
-									panicRed(err)
-								}
+							err = reqDashboard(ips, addrInfo, requestOptions, protocol)
+							if err != nil {
+								panicRed(err)
 							}
 						}
 					}()

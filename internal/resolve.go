@@ -91,7 +91,7 @@ func (addr Address) getTarget() string {
 }
 
 // Applied when using HTTP protocol.
-func ResolveHttp(addr *Address, opt *ReqOptions) error {
+func ResolveHTTP(addr *Address, opt *ReqOptions) error {
 
 	netURL := url.URL{}
 	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
@@ -162,7 +162,46 @@ func ResolveHttp(addr *Address, opt *ReqOptions) error {
 	return nil
 }
 
-func GetStatusCodeonHttps(addr *Address, opt *ReqOptions) (int, string, error) {
+func GetStatusCodeOnHTTP(addr *Address, opt *ReqOptions) (int, string, error) {
+	netURL := url.URL{}
+	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
+	urlProxy, err := netURL.Parse(ref)
+	if err != nil {
+		return 0, "", err
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout: 5 * time.Second,
+			}).Dial,
+			TLSHandshakeTimeout: 5 * time.Second,
+			Proxy:               http.ProxyURL(urlProxy),
+		},
+	}
+
+	urlDomain := fmt.Sprintf("http://%s", addr.Url)
+	req, err := http.NewRequest("GET", urlDomain, nil)
+	if err != nil {
+		return 0, "", err
+	}
+
+	var result httpstat.Result
+	ctx := httpstat.WithHTTPStat(req.Context(), &result)
+	req = req.WithContext(ctx)
+
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode, addr.getIP(), nil
+}
+
+func GetStatusCodeOnHTTPS(addr *Address, opt *ReqOptions) (int, string, error) {
 
 	transport := SetTransport(addr.getUrl(), addr.getIP())
 	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
@@ -195,7 +234,7 @@ func GetStatusCodeonHttps(addr *Address, opt *ReqOptions) (int, string, error) {
 }
 
 // Applied when using HTTPS protocol.
-func ResolveHttps(addr *Address, opt *ReqOptions) error {
+func ResolveHTTPS(addr *Address, opt *ReqOptions) error {
 
 	transport := SetTransport(addr.getUrl(), addr.getIP())
 	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
