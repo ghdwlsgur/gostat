@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -44,20 +46,42 @@ func reqDashboard(ips []string, addrInfo *internal.Address, requestOptions *inte
 	}
 	defer ui.Close()
 
-	sbc := widgets.NewStackedBarChart()
-	sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", addrInfo.DomainName)
-	sbc.TitleStyle.Bg = 0
-	sbc.Labels = ips
-	sbc.Data = make([][]float64, 9)
-	sbc.SetRect(0, 0, 85, 30)
-	sbc.BarWidth = 20
-	sbc.BorderStyle.Fg = 7
-	sbc.BorderStyle.Bg = 0
-	sbc.LabelStyles = []ui.Style{
-		{Fg: 7, Bg: 0, Modifier: ui.ModifierClear},
+	if err := ui.Init(); err != nil {
+		log.Fatalf("failed to initialize termui: %v", err)
 	}
-	sbc.NumStyles = []ui.Style{
-		{Bg: 0, Modifier: ui.ModifierClear},
+	defer ui.Close()
+
+	table1 := widgets.NewTable()
+	table1.Rows = [][]string{
+		ips,
+		make([]string, len(ips)), // statusCode
+		make([]string, len(ips)),
+	}
+
+	fmt.Println(table1.Rows[0])
+	table1.TextStyle = ui.NewStyle(ui.ColorWhite)
+	table1.SetRect(85, 0, 160, 30)
+
+	edgeCharts := make(map[string]*widgets.StackedBarChart, len(ips))
+
+	for _, ip := range ips {
+
+		sbc := widgets.NewStackedBarChart()
+		sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", addrInfo.DomainName)
+		sbc.TitleStyle.Bg = 0
+		sbc.Labels = ips
+		sbc.Data = make([][]float64, 9)
+		sbc.SetRect(0, 0, 85, 30)
+		sbc.BarWidth = 20
+		sbc.BorderStyle.Fg = 7
+		sbc.BorderStyle.Bg = 0
+		sbc.LabelStyles = []ui.Style{
+			{Fg: 7, Bg: 0, Modifier: ui.ModifierClear},
+		}
+		sbc.NumStyles = []ui.Style{
+			{Bg: 0, Modifier: ui.ModifierClear},
+		}
+		edgeCharts[ip] = sbc
 	}
 
 	uiEvents := ui.PollEvents()
@@ -72,6 +96,7 @@ delay:
 			}
 
 		default:
+
 			for i, ip := range ips {
 
 				addrInfo.IP = ip
@@ -82,35 +107,46 @@ delay:
 					if err != nil {
 						return err
 					}
-					sbc.BarColors = dynamicStatusCodeColor(statusCode, sbc.BarColors)
-
+					edgeCharts[ip].BarColors = dynamicStatusCodeColor(statusCode, edgeCharts[ip].BarColors)
 					if edgeIP == ip {
-						sbc.Data[i] = append(sbc.Data[i], float64(statusCode))
+						edgeCharts[ip].Data[i] = append(edgeCharts[ip].Data[i], float64(statusCode))
 					}
 
-					ui.Render(sbc)
-					if len(sbc.Data[0]) == 9 && i == len(ips)-1 {
-						sbc.Data = make([][]float64, 9)
+					if table1.Rows[0][i] == ip {
+						statusCodeStr := strconv.Itoa(statusCode)
+						table1.Rows[1][i] = statusCodeStr
 					}
 
+					ui.Render(edgeCharts[ip])
+					ui.Render(table1)
+					if len(edgeCharts[ip].Data[i]) == 9 && i == len(ips)-1 {
+						for _, v := range edgeCharts {
+							v.Data = make([][]float64, 9)
+						}
+					}
 				case "http":
 					statusCode, edgeIP, err := internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
 					if err != nil {
 						return err
 					}
-
-					sbc.BarColors = dynamicStatusCodeColor(statusCode, sbc.BarColors)
-
+					edgeCharts[ip].BarColors = dynamicStatusCodeColor(statusCode, edgeCharts[ip].BarColors)
 					if edgeIP == ip {
-						sbc.Data[i] = append(sbc.Data[i], float64(statusCode))
+						edgeCharts[ip].Data[i] = append(edgeCharts[ip].Data[i], float64(statusCode))
 					}
 
-					ui.Render(sbc)
-					if len(sbc.Data[0]) == 9 && i == len(ips)-1 {
-						sbc.Data = make([][]float64, 9)
+					if table1.Rows[0][i] == ip {
+						statusCodeStr := strconv.Itoa(statusCode)
+						table1.Rows[1][i] = statusCodeStr
+					}
+
+					ui.Render(edgeCharts[ip])
+					ui.Render(table1)
+					if len(edgeCharts[ip].Data[i]) == 9 && i == len(ips)-1 {
+						for _, v := range edgeCharts {
+							v.Data = make([][]float64, 9)
+						}
 					}
 				}
-
 			}
 		}
 	}
