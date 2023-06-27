@@ -2,11 +2,15 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/fatih/color"
@@ -23,6 +27,76 @@ type ReqOptions struct {
 	Transport     http.Transport
 	AttackMode    bool `json:"attack-mode"`
 	RequestCount  int
+}
+
+type Response struct {
+	StatusCode    int    `json:"Status"`
+	Server        string `json:"Server"`
+	Date          string `json:"Date"`
+	LastModified  string `json:"Last-Modified"`
+	Etag          string `json:"Etag"`
+	Age           string `json:"Age"`
+	Expires       string `json:"Expires"`
+	CacheControl  string `json:"Cache-Control"`
+	ContentType   string `json:"Content-Type"`
+	ContentLength string `json:"Content-Length"`
+	ACAOrigin     string `json:"Access-Control-Allow-Origin"`
+	Via           string `json:"Via"`
+	EdgeIP        string
+	Hash          []byte
+	Error         error
+}
+
+func (r Response) GetStatusCode() string {
+	return strconv.Itoa(r.StatusCode)
+}
+
+func (r Response) GetServer() string {
+	return r.Server
+}
+
+func (r Response) GetDate() string {
+	return r.Date
+}
+
+func (r Response) GetLastModified() string {
+	return r.LastModified
+}
+
+func (r Response) GetEtag() string {
+	return r.Etag
+}
+
+func (r Response) GetAge() string {
+	return r.Age
+}
+
+func (r Response) GetExpires() string {
+	return r.Expires
+}
+
+func (r Response) GetCacheControl() string {
+	return r.CacheControl
+}
+
+func (r Response) GetContentType() string {
+	return r.ContentType
+}
+
+func (r Response) GetContentLength() string {
+	return r.ContentLength
+}
+
+func (r Response) GetACAOrigin() string {
+	return r.ACAOrigin
+}
+
+func (r Response) GetVia() string {
+	return r.Via
+}
+
+func (r Response) GetHash() string {
+	return base64.StdEncoding.EncodeToString(r.Hash)
 }
 
 // Structure with fields for address information.
@@ -135,10 +209,8 @@ func ResolveHTTP(addr *Address, opt *ReqOptions) error {
 			fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
 		}
 
-		ips, _ := GetRecordIPv4(urlDomain)
-		if len(ips) > 0 {
-			latencyWrapper(urlDomain)
-		}
+		// ips, _ := GetRecordIPv4(urlDomain)
+		latencyWrapper(urlDomain)
 
 		fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
 		setRequestHeader(resp)
@@ -160,77 +232,6 @@ func ResolveHTTP(addr *Address, opt *ReqOptions) error {
 	}
 
 	return nil
-}
-
-func GetStatusCodeOnHTTP(addr *Address, opt *ReqOptions) (int, string, error) {
-	netURL := url.URL{}
-	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
-	urlProxy, err := netURL.Parse(ref)
-	if err != nil {
-		return 0, "", err
-	}
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout: 5 * time.Second,
-			}).Dial,
-			TLSHandshakeTimeout: 5 * time.Second,
-			Proxy:               http.ProxyURL(urlProxy),
-		},
-	}
-
-	urlDomain := fmt.Sprintf("http://%s", addr.Url)
-	req, err := http.NewRequest("GET", urlDomain, nil)
-	if err != nil {
-		return 0, "", err
-	}
-
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, "", err
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode, addr.getIP(), nil
-}
-
-func GetStatusCodeOnHTTPS(addr *Address, opt *ReqOptions) (int, string, error) {
-
-	transport := SetTransport(addr.getUrl(), addr.getIP())
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
-	if err != nil {
-		return 0, "", err
-	}
-	defer conn.Close()
-
-	client := &http.Client{Transport: &transport}
-
-	url := fmt.Sprintf("https://%s", addr.getUrl())
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		panic(err)
-	}
-
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, "", err
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode, addr.getIP(), nil
 }
 
 // Applied when using HTTPS protocol.
@@ -398,4 +399,138 @@ func printResponse(resp *http.Response) {
 		}
 	}
 	fmt.Println()
+}
+
+func GetStatusCodeOnHTTPS(addr *Address, opt *ReqOptions) *Response {
+
+	response := &Response{}
+	transport := SetTransport(addr.getUrl(), addr.getIP())
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+	defer conn.Close()
+
+	client := &http.Client{Transport: &transport}
+	url := fmt.Sprintf("https://%s", addr.getUrl())
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+
+	var result httpstat.Result
+	ctx := httpstat.WithHTTPStat(req.Context(), &result)
+	req = req.WithContext(ctx)
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
+
+	latencyTermuiWrapper(url)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+	defer resp.Body.Close()
+
+	// Get Contents Hash
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, resp.Body); err != nil {
+		response.Error = err
+		return response
+	}
+	sum := hasher.Sum(nil)
+
+	response = &Response{
+		StatusCode:    resp.StatusCode,
+		Server:        resp.Header.Get("Server"),
+		Date:          resp.Header.Get("Date"),
+		LastModified:  resp.Header.Get("Last-Modified"),
+		Etag:          resp.Header.Get("Etag"),
+		Age:           resp.Header.Get("Age"),
+		Expires:       resp.Header.Get("Expires"),
+		CacheControl:  resp.Header.Get("Cache-Control"),
+		ContentType:   resp.Header.Get("Content-Type"),
+		ContentLength: resp.Header.Get("Content-Length"),
+		ACAOrigin:     resp.Header.Get("Access-Control-Allow-Origin"),
+		Via:           resp.Header.Get("Via"),
+		EdgeIP:        addr.getIP(),
+		Hash:          sum,
+		Error:         nil,
+	}
+
+	return response
+}
+
+func GetStatusCodeOnHTTP(addr *Address, opt *ReqOptions) *Response {
+	response := &Response{}
+
+	netURL := url.URL{}
+	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
+	urlProxy, err := netURL.Parse(ref)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout: 5 * time.Second,
+			}).Dial,
+			TLSHandshakeTimeout: 5 * time.Second,
+			Proxy:               http.ProxyURL(urlProxy),
+		},
+	}
+
+	urlDomain := fmt.Sprintf("http://%s", addr.Url)
+	req, err := http.NewRequest("GET", urlDomain, nil)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+
+	var result httpstat.Result
+	ctx := httpstat.WithHTTPStat(req.Context(), &result)
+	req = req.WithContext(ctx)
+
+	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+	defer resp.Body.Close()
+
+	latencyTermuiWrapper(urlDomain)
+
+	// Get Contents Hash
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, resp.Body); err != nil {
+		response.Error = err
+		return response
+	}
+	sum := hasher.Sum(nil)
+
+	response = &Response{
+		StatusCode:    resp.StatusCode,
+		Server:        resp.Header.Get("Server"),
+		Date:          resp.Header.Get("Date"),
+		LastModified:  resp.Header.Get("Last-Modified"),
+		Etag:          resp.Header.Get("Etag"),
+		Age:           resp.Header.Get("Age"),
+		Expires:       resp.Header.Get("Expires"),
+		CacheControl:  resp.Header.Get("Cache-Control"),
+		ContentType:   resp.Header.Get("Content-Type"),
+		ContentLength: resp.Header.Get("Content-Length"),
+		ACAOrigin:     resp.Header.Get("Access-Control-Allow-Origin"),
+		Via:           resp.Header.Get("Via"),
+		EdgeIP:        addr.getIP(),
+		Hash:          sum,
+		Error:         nil,
+	}
+
+	return response
 }
