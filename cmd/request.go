@@ -14,6 +14,25 @@ import (
 	"github.com/spf13/viper"
 )
 
+type set map[interface{}]struct{}
+
+func (s set) Add(v interface{}) {
+	s[v] = struct{}{}
+}
+
+func (s set) Remove(v interface{}) {
+	delete(s, v)
+}
+
+func (s set) Contain(v interface{}) bool {
+	_, ok := s[v]
+	return ok
+}
+
+func (s set) Length() int {
+	return len(s)
+}
+
 func getProtocol(data []string) (string, error) {
 	if len(data[0]) > 5 {
 		if data[0] != "http" {
@@ -54,6 +73,20 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	header[0] = "IP"
 	copy(header[1:], ips)
 
+	history := widgets.NewTable()
+	history.Rows = [][]string{
+		make([]string, 2),
+	}
+	history.Rows[0][0] = "StatusCode"
+	history.Title = "History"
+	history.BorderStyle.Fg = 7
+	history.BorderStyle.Bg = 0
+	history.TitleStyle.Fg = 7
+	history.TitleStyle.Bg = 0
+	history.TextStyle = ui.NewStyle(ui.ColorWhite)
+	history.TextStyle.Bg = 0
+	history.SetRect(85, 31, 180, 41)
+
 	table := widgets.NewTable()
 	table.Rows = [][]string{
 		header,
@@ -70,8 +103,10 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 		make([]string, len(ips)+1), // Access-Control-Allow-Origin
 		make([]string, len(ips)+1), // Via
 		make([]string, len(ips)+1), // Hash
+		make([]string, len(ips)+1), // RequestCount
 	}
 
+	table.Title = "Response"
 	table.Rows[1][0] = "StatusCode"
 	table.Rows[2][0] = "Server"
 	table.Rows[3][0] = "Date"
@@ -85,6 +120,7 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	table.Rows[11][0] = "ACA-Origin"
 	table.Rows[12][0] = "Via"
 	table.Rows[13][0] = "Hash"
+	table.Rows[14][0] = "RequestCount"
 
 	table.BorderStyle.Fg = 7
 	table.BorderStyle.Bg = 0
@@ -92,12 +128,11 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	table.TitleStyle.Bg = 0
 	table.TextStyle = ui.NewStyle(ui.ColorWhite)
 	table.TextStyle.Bg = 0
-	table.SetRect(85, 0, 180, 30)
+	table.SetRect(85, 0, 180, 31)
 
 	edgeCharts := make(map[string]*widgets.StackedBarChart, len(ips))
 
 	for _, ip := range ips {
-
 		sbc := widgets.NewStackedBarChart()
 		sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", addrInfo.DomainName)
 		sbc.TitleStyle.Bg = 0
@@ -117,6 +152,9 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	}
 
 	uiEvents := ui.PollEvents()
+
+	statusBox := &set{}
+	initLength := 1
 
 delay:
 	for {
@@ -156,10 +194,19 @@ delay:
 						table.Rows[11][i+1] = response.GetACAOrigin()
 						table.Rows[12][i+1] = response.GetVia()
 						table.Rows[13][i+1] = response.GetHash()
+						table.Rows[14][i+1] = requestOptions.GetRequestCount()
+					}
+
+					history.Rows[0][1] = response.GetStatusCode()
+					statusBox.Add(response.GetStatusCode())
+					if initLength != len(*statusBox) {
+						history.Rows[0] = append(history.Rows[0], response.GetStatusCode())
+						initLength++
 					}
 
 					ui.Render(edgeCharts[ip])
 					ui.Render(table)
+					ui.Render(history)
 					time.Sleep(time.Millisecond * 500)
 
 					if len(edgeCharts[ip].Data[i]) == 9 && i == len(ips)-1 {
@@ -205,6 +252,7 @@ delay:
 				}
 			}
 		}
+		requestOptions.RequestCount++
 	}
 	return nil
 }
