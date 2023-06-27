@@ -148,6 +148,10 @@ func (ro *ReqOptions) getRequestCount() int {
 	return ro.RequestCount
 }
 
+func (ro *ReqOptions) GetRequestCount() string {
+	return strconv.Itoa(ro.RequestCount)
+}
+
 func (addr Address) getIP() string {
 	return addr.IP
 }

@@ -206,6 +206,8 @@ func showStatusOnDashBoardHTTP(url string, result *httpstat.Result, resultC chan
 		make([]string, 2),
 		make([]string, 2),
 	}
+
+	t.Title = "Latency"
 	t.BorderStyle.Fg = 7
 	t.BorderStyle.Bg = 0
 	t.TitleStyle.Fg = 7
@@ -263,6 +265,7 @@ func showStatusOnDashBoardHTTPS(url string, result *httpstat.Result, resultC cha
 		make([]string, 2),
 		make([]string, 2),
 	}
+	t.Title = "Latency"
 	t.BorderStyle.Fg = 7
 	t.BorderStyle.Bg = 0
 	t.TitleStyle.Fg = 7
