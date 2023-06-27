@@ -19,6 +19,12 @@ This is an interactive CLI tool that uses the net/http package to make an HTTP G
 
 **_It can be useful for testing purposes before transferring to a CNAME record of a domain that uses a CDN domain._**
 
+<div align="center">
+
+[![asciicast](https://asciinema.org/a/yakWtqPyYdwlFHuEEHhcGLHIq.svg)](https://asciinema.org/a/yakWtqPyYdwlFHuEEHhcGLHIq)
+
+</div>
+
 # Why
 
 The motivation for creating this tool was that while using the curl command to inspect HTTP GET responses, I found that the options I used became increasingly varied, and the command itself became longer. Personally, I had customized the command with the options I frequently used along with request headers in my zshrc script. However, instead of using this method, I wanted to create a tool with fixed options and request header values that I typically use. I wanted to create a tool that could be useful for others who may have similar concerns or team members who could benefit from it.
