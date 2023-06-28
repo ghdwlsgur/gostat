@@ -21,7 +21,11 @@ This is an interactive CLI tool that uses the net/http package to make an HTTP G
 
 <div align="center">
 
-[![asciicast](https://asciinema.org/a/yakWtqPyYdwlFHuEEHhcGLHIq.svg)](https://asciinema.org/a/yakWtqPyYdwlFHuEEHhcGLHIq)
+![overview](https://github.com/ghdwlsgur/gostat/assets/77400522/70a1be3b-943d-483c-847c-4592d5e02def)
+
+```bash
+gostat request https://ghdwlsgur.github.io/ -d
+```
 
 </div>
 
@@ -40,12 +44,12 @@ curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223. 130.195.95
 ### homebrew
 
 ```bash
-
 # [install]
 brew tap ghdwlsgur/gostat
 brew install gostat
 
 # [upgrade]
+brew update --verbose
 brew upgrade gostat
 ```
 
