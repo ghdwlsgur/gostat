@@ -14,23 +14,73 @@ import (
 	"github.com/spf13/viper"
 )
 
-type set map[interface{}]struct{}
+// type set map[interface{}]struct{}
 
-func (s set) Add(v interface{}) {
-	s[v] = struct{}{}
+// func (s set) Add(v interface{}) {
+// 	s[v] = struct{}{}
+// }
+
+// func (s set) Remove(v interface{}) {
+// 	delete(s, v)
+// }
+
+// func (s set) Contain(v interface{}) bool {
+// 	_, ok := s[v]
+// 	return ok
+// }
+
+// func (s set) Length() int {
+// 	return len(s)
+// }
+
+// func (s set) Get() []string {
+// 	list := make([]string, 0, len(s))
+// 	list = append(list, "StatusCode")
+// 	for key := range s {
+// 		list = append(list, key.(string))
+// 	}
+// 	return list
+// }
+
+type statusBox struct {
+	data []string
 }
 
-func (s set) Remove(v interface{}) {
-	delete(s, v)
+func (s *statusBox) Add(v string) {
+	for _, value := range s.data {
+		if value == v {
+			return
+		}
+	}
+	s.data = append(s.data, v)
 }
 
-func (s set) Contain(v interface{}) bool {
-	_, ok := s[v]
-	return ok
+func (s *statusBox) Remove(v string) {
+	for i, value := range s.data {
+		if value == v {
+			s.data = append(s.data[:i], s.data[i+1:]...)
+			return
+		}
+	}
 }
 
-func (s set) Length() int {
-	return len(s)
+func (s *statusBox) Contain(v string) bool {
+	for _, value := range s.data {
+		if value == v {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *statusBox) Length() int {
+	return len(s.data)
+}
+
+func (s *statusBox) Get() []string {
+	list := make([]string, len(s.data))
+	copy(list, s.data)
+	return list
 }
 
 type drawArgs struct {
@@ -41,9 +91,8 @@ type drawArgs struct {
 	index          int
 	responseTable  *widgets.Table
 	historyTable   *widgets.Table
-	statusBox      *set
+	statusBox      *statusBox
 	requestOptions *internal.ReqOptions
-	initLength     int
 }
 
 func (d drawArgs) rendering() {
@@ -81,12 +130,14 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	}
 	defer ui.Close()
 
+	statusBox := &statusBox{}
 	historyTable := createHistoryTable(protocol)
 	responseTable := createResponseTable(ips)
 	edgeCharts := createEdgeChart(addrInfo.DomainName, ips)
-	statusBox := &set{}
-	initLength := 1
 	uiEvents := ui.PollEvents()
+
+	statusBox.data = append(statusBox.data, "StatusCode")
+
 delay:
 	for {
 		select {
@@ -106,7 +157,7 @@ delay:
 						return response.Error
 					}
 
-					initLength = widgetDraw(&drawArgs{
+					widgetDraw(&drawArgs{
 						edgeCharts:     edgeCharts,
 						response:       response,
 						ip:             ip,
@@ -116,7 +167,6 @@ delay:
 						historyTable:   historyTable,
 						statusBox:      statusBox,
 						requestOptions: requestOptions,
-						initLength:     initLength,
 					})
 				case "http":
 					response := internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
@@ -124,7 +174,7 @@ delay:
 						return response.Error
 					}
 
-					initLength = widgetDraw(&drawArgs{
+					widgetDraw(&drawArgs{
 						edgeCharts:     edgeCharts,
 						response:       response,
 						ip:             ip,
@@ -134,7 +184,6 @@ delay:
 						historyTable:   historyTable,
 						statusBox:      statusBox,
 						requestOptions: requestOptions,
-						initLength:     initLength,
 					})
 				}
 			}
@@ -242,7 +291,7 @@ func createResponseTable(ips []string) *widgets.Table {
 	return responseTable
 }
 
-func widgetDraw(d *drawArgs) int {
+func widgetDraw(d *drawArgs) {
 	ip := d.ip
 	i := d.index
 	response := d.response
@@ -257,13 +306,8 @@ func widgetDraw(d *drawArgs) int {
 		d.insertData()
 	}
 
-	d.historyTable.Rows[0][1] = response.GetStatusCode()
 	d.statusBox.Add(response.GetStatusCode())
-
-	if d.initLength != d.statusBox.Length() {
-		d.historyTable.Rows[0] = append(d.historyTable.Rows[0], response.GetStatusCode())
-		d.initLength++
-	}
+	d.historyTable.Rows[0] = d.statusBox.Get()
 	d.rendering()
 
 	if len(edgeCharts[ip].Data[i]) == 9 && i == d.ipListLength {
@@ -271,7 +315,6 @@ func widgetDraw(d *drawArgs) int {
 			v.Data = make([][]float64, 9)
 		}
 	}
-	return d.initLength
 }
 
 func getProtocol(data []string) (string, error) {
