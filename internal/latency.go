@@ -186,41 +186,73 @@ func getLatenciesOnDashBoard(url string, resultC chan<- Result) error {
 	}
 
 	protocol := strings.Split(url, "://")[0]
-	if protocol == "http" {
-		showStatusOnDashBoardHTTP(url, result, resultC)
-	}
-	if protocol == "https" {
-		showStatusOnDashBoardHTTPS(url, result, resultC)
-	}
+	showLatencyDashBoard(result, protocol)
 
 	close(resultC)
 	return nil
 }
 
-func showStatusOnDashBoardHTTP(url string, result *httpstat.Result, resultC chan<- Result) {
+func showLatencyDashBoard(result *httpstat.Result, protocol string) {
+	latencyTable := createLatencyTable(protocol)
 
-	t := widgets.NewTable()
-	t.Rows = [][]string{
-		make([]string, 2),
-		make([]string, 2),
-		make([]string, 2),
-		make([]string, 2),
+	if protocol == "http" {
+		latencyTable = sendChannelOnHTTP(result, latencyTable)
+	} else {
+		latencyTable = sendChannelOnHTTPS(result, latencyTable)
 	}
+	ui.Render(latencyTable)
+}
 
-	t.Title = "Latency"
-	t.BorderStyle.Fg = 7
-	t.BorderStyle.Bg = 0
-	t.TitleStyle.Fg = 7
-	t.TitleStyle.Bg = 0
-	t.TextStyle = ui.NewStyle(ui.ColorWhite)
-	t.TextStyle.Bg = 0
-	t.SetRect(0, 30, 85, 39)
+func createLatencyTable(protocol string) *widgets.Table {
+	latencyTable := widgets.NewTable()
+	switch protocol {
+	case "http":
+		latencyTable.Rows = [][]string{
+			make([]string, 2),
+			make([]string, 2),
+			make([]string, 2),
+			make([]string, 2),
+		}
+		latencyTable.Title = "Latency"
+		latencyTable.BorderStyle.Fg = 7
+		latencyTable.BorderStyle.Bg = 0
+		latencyTable.TitleStyle.Fg = 7
+		latencyTable.TitleStyle.Bg = 0
+		latencyTable.TextStyle = ui.NewStyle(ui.ColorWhite)
+		latencyTable.TextStyle.Bg = 0
+		latencyTable.SetRect(0, 30, 85, 39)
 
-	t.Rows[0][0] = "DNS Lookup"
-	t.Rows[1][0] = "TCP Connection"
-	t.Rows[2][0] = "Server Processing"
-	t.Rows[3][0] = "Content Transfer"
+		latencyTable.Rows[0][0] = "DNS Lookup"
+		latencyTable.Rows[1][0] = "TCP Connection"
+		latencyTable.Rows[2][0] = "Server Processing"
+		latencyTable.Rows[3][0] = "Content Transfer"
+	case "https":
+		latencyTable.Rows = [][]string{
+			make([]string, 2),
+			make([]string, 2),
+			make([]string, 2),
+			make([]string, 2),
+			make([]string, 2),
+		}
+		latencyTable.Title = "Latency"
+		latencyTable.BorderStyle.Fg = 7
+		latencyTable.BorderStyle.Bg = 0
+		latencyTable.TitleStyle.Fg = 7
+		latencyTable.TitleStyle.Bg = 0
+		latencyTable.TextStyle = ui.NewStyle(ui.ColorWhite)
+		latencyTable.TextStyle.Bg = 0
+		latencyTable.SetRect(0, 30, 85, 41)
 
+		latencyTable.Rows[0][0] = "DNS Lookup"
+		latencyTable.Rows[1][0] = "TCP Connection"
+		latencyTable.Rows[2][0] = "TLS Handshake"
+		latencyTable.Rows[3][0] = "Server Processing"
+		latencyTable.Rows[4][0] = "Content Transfer"
+	}
+	return latencyTable
+}
+
+func sendChannelOnHTTP(result *httpstat.Result, latencyTable *widgets.Table) *widgets.Table {
 	dnsChan := make(chan string)
 	tcpChan := make(chan string)
 	serverChan := make(chan string)
@@ -246,40 +278,16 @@ func showStatusOnDashBoardHTTP(url string, result *httpstat.Result, resultC chan
 		rttChan <- result.Total(time.Now()).String()
 	}()
 
-	t.Rows[0][1] = <-dnsChan
-	t.Rows[1][1] = <-tcpChan
-	t.Rows[2][1] = <-serverChan
+	latencyTable.Rows[0][1] = <-dnsChan
+	latencyTable.Rows[1][1] = <-tcpChan
+	latencyTable.Rows[2][1] = <-serverChan
 	total := result.DNSLookup + result.TCPConnection + result.ServerProcessing
-	t.Rows[3][1] = total.String()
+	latencyTable.Rows[3][1] = total.String()
 
-	ui.Render(t)
+	return latencyTable
 }
 
-func showStatusOnDashBoardHTTPS(url string, result *httpstat.Result, resultC chan<- Result) {
-
-	t := widgets.NewTable()
-	t.Rows = [][]string{
-		make([]string, 2),
-		make([]string, 2),
-		make([]string, 2),
-		make([]string, 2),
-		make([]string, 2),
-	}
-	t.Title = "Latency"
-	t.BorderStyle.Fg = 7
-	t.BorderStyle.Bg = 0
-	t.TitleStyle.Fg = 7
-	t.TitleStyle.Bg = 0
-	t.TextStyle = ui.NewStyle(ui.ColorWhite)
-	t.TextStyle.Bg = 0
-	t.SetRect(0, 30, 85, 41)
-
-	t.Rows[0][0] = "DNS Lookup"
-	t.Rows[1][0] = "TCP Connection"
-	t.Rows[2][0] = "TLS Handshake"
-	t.Rows[3][0] = "Server Processing"
-	t.Rows[4][0] = "Content Transfer"
-
+func sendChannelOnHTTPS(result *httpstat.Result, latencyTable *widgets.Table) *widgets.Table {
 	dnsChan := make(chan string)
 	tcpChan := make(chan string)
 	tlsChan := make(chan string)
@@ -311,12 +319,12 @@ func showStatusOnDashBoardHTTPS(url string, result *httpstat.Result, resultC cha
 		rttChan <- result.Total(time.Now()).String()
 	}()
 
-	t.Rows[0][1] = <-dnsChan
-	t.Rows[1][1] = <-tcpChan
-	t.Rows[2][1] = <-tlsChan
-	t.Rows[3][1] = <-serverChan
+	latencyTable.Rows[0][1] = <-dnsChan
+	latencyTable.Rows[1][1] = <-tcpChan
+	latencyTable.Rows[2][1] = <-tlsChan
+	latencyTable.Rows[3][1] = <-serverChan
 	total := result.DNSLookup + result.TCPConnection + result.TLSHandshake + result.ServerProcessing
-	t.Rows[4][1] = total.String()
+	latencyTable.Rows[4][1] = total.String()
 
-	ui.Render(t)
+	return latencyTable
 }

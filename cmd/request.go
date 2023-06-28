@@ -33,6 +33,247 @@ func (s set) Length() int {
 	return len(s)
 }
 
+type drawArgs struct {
+	edgeCharts     map[string]*widgets.StackedBarChart
+	response       *internal.Response
+	ip             string
+	ipListLength   int
+	index          int
+	responseTable  *widgets.Table
+	historyTable   *widgets.Table
+	statusBox      *set
+	requestOptions *internal.ReqOptions
+	initLength     int
+}
+
+func (d drawArgs) rendering() {
+	ui.Render(d.edgeCharts[d.ip])
+	ui.Render(d.responseTable)
+	ui.Render(d.historyTable)
+	time.Sleep(time.Millisecond * 500)
+}
+
+func (d drawArgs) insertData() {
+	d.responseTable.Rows[1][d.index+1] = d.response.GetStatusCode()
+	d.responseTable.Rows[2][d.index+1] = d.response.GetServer()
+	d.responseTable.Rows[3][d.index+1] = d.response.GetDate()
+	d.responseTable.Rows[4][d.index+1] = d.response.GetLastModified()
+	d.responseTable.Rows[5][d.index+1] = d.response.GetEtag()
+	d.responseTable.Rows[6][d.index+1] = d.response.GetAge()
+	d.responseTable.Rows[7][d.index+1] = d.response.GetExpires()
+	d.responseTable.Rows[8][d.index+1] = d.response.GetCacheControl()
+	d.responseTable.Rows[9][d.index+1] = d.response.GetContentType()
+	d.responseTable.Rows[10][d.index+1] = d.response.GetContentLength()
+	d.responseTable.Rows[11][d.index+1] = d.response.GetACAOrigin()
+	d.responseTable.Rows[12][d.index+1] = d.response.GetVia()
+	d.responseTable.Rows[13][d.index+1] = d.response.GetHash()
+	d.responseTable.Rows[14][d.index+1] = d.requestOptions.GetRequestCount()
+}
+
+func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string) error {
+	if err := ui.Init(); err != nil {
+		return err
+	}
+	defer ui.Close()
+
+	if err := ui.Init(); err != nil {
+		return err
+	}
+	defer ui.Close()
+
+	historyTable := createHistoryTable(protocol)
+	responseTable := createResponseTable(ips)
+	edgeCharts := createEdgeChart(addrInfo.DomainName, ips)
+	statusBox := &set{}
+	initLength := 1
+	uiEvents := ui.PollEvents()
+delay:
+	for {
+		select {
+		case e := <-uiEvents:
+			if e.Type == ui.KeyboardEvent && (e.ID == "q" || e.ID == "<C-c>") {
+				os.Exit(0)
+				break delay
+			}
+		default:
+			for i, ip := range ips {
+				addrInfo.IP = ip
+				requestOptions.Port = viper.GetInt("port-number")
+				switch protocol {
+				case "https":
+					response := internal.GetStatusCodeOnHTTPS(addrInfo, requestOptions)
+					if response.Error != nil {
+						return response.Error
+					}
+
+					initLength = widgetDraw(&drawArgs{
+						edgeCharts:     edgeCharts,
+						response:       response,
+						ip:             ip,
+						ipListLength:   len(ips) - 1,
+						index:          i,
+						responseTable:  responseTable,
+						historyTable:   historyTable,
+						statusBox:      statusBox,
+						requestOptions: requestOptions,
+						initLength:     initLength,
+					})
+				case "http":
+					response := internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
+					if response.Error != nil {
+						return response.Error
+					}
+
+					initLength = widgetDraw(&drawArgs{
+						edgeCharts:     edgeCharts,
+						response:       response,
+						ip:             ip,
+						ipListLength:   len(ips) - 1,
+						index:          i,
+						responseTable:  responseTable,
+						historyTable:   historyTable,
+						statusBox:      statusBox,
+						requestOptions: requestOptions,
+						initLength:     initLength,
+					})
+				}
+			}
+		}
+		requestOptions.RequestCount++
+	}
+	return nil
+}
+
+func createEdgeChart(domain string, ips []string) map[string]*widgets.StackedBarChart {
+	edgeCharts := make(map[string]*widgets.StackedBarChart, len(ips))
+
+	for _, ip := range ips {
+		sbc := widgets.NewStackedBarChart()
+		sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", domain)
+		sbc.TitleStyle.Bg = 0
+		sbc.Labels = ips
+		sbc.Data = make([][]float64, 9)
+		sbc.SetRect(0, 0, 85, 30)
+		sbc.BarWidth = 20
+		sbc.BorderStyle.Fg = 7
+		sbc.BorderStyle.Bg = 0
+		sbc.LabelStyles = []ui.Style{
+			{Fg: 7, Bg: 0, Modifier: ui.ModifierClear},
+		}
+		sbc.NumStyles = []ui.Style{
+			{Bg: 0, Modifier: ui.ModifierClear},
+		}
+		edgeCharts[ip] = sbc
+	}
+
+	return edgeCharts
+}
+
+func createHistoryTable(protocol string) *widgets.Table {
+	historyTable := widgets.NewTable()
+	historyTable.Rows = [][]string{
+		make([]string, 2), // StatusCode
+	}
+	historyTable.Rows[0][0] = "StatusCode"
+	historyTable.Title = "History"
+	historyTable.BorderStyle.Fg = 7
+	historyTable.BorderStyle.Bg = 0
+	historyTable.TitleStyle.Fg = 7
+	historyTable.TitleStyle.Bg = 0
+	historyTable.TextStyle = ui.NewStyle(ui.ColorWhite)
+	historyTable.TextStyle.Bg = 0
+
+	if protocol == "https" {
+		historyTable.SetRect(85, 31, 180, 41)
+	} else {
+		historyTable.SetRect(85, 31, 180, 39)
+	}
+
+	return historyTable
+}
+
+func createResponseTable(ips []string) *widgets.Table {
+	header := make([]string, len(ips)+1)
+	header[0] = "IP"
+	copy(header[1:], ips)
+
+	responseTable := widgets.NewTable()
+	responseTable.Rows = [][]string{
+		header,
+		make([]string, len(ips)+1), // statusCode
+		make([]string, len(ips)+1), // Server
+		make([]string, len(ips)+1), // Date
+		make([]string, len(ips)+1), // Last-Modified
+		make([]string, len(ips)+1), // Etag
+		make([]string, len(ips)+1), // Age
+		make([]string, len(ips)+1), // Expires
+		make([]string, len(ips)+1), // Cache-Control
+		make([]string, len(ips)+1), // Content-Type
+		make([]string, len(ips)+1), // Content-Length
+		make([]string, len(ips)+1), // Access-Control-Allow-Origin
+		make([]string, len(ips)+1), // Via
+		make([]string, len(ips)+1), // Hash
+		make([]string, len(ips)+1), // RequestCount
+	}
+
+	responseTable.Title = "Response"
+	responseTable.Rows[1][0] = "StatusCode"
+	responseTable.Rows[2][0] = "Server"
+	responseTable.Rows[3][0] = "Date"
+	responseTable.Rows[4][0] = "Last-Modified"
+	responseTable.Rows[5][0] = "ETag"
+	responseTable.Rows[6][0] = "Age"
+	responseTable.Rows[7][0] = "Expires"
+	responseTable.Rows[8][0] = "Cache-Control"
+	responseTable.Rows[9][0] = "Content-Type"
+	responseTable.Rows[10][0] = "Content-Length"
+	responseTable.Rows[11][0] = "ACA-Origin"
+	responseTable.Rows[12][0] = "Via"
+	responseTable.Rows[13][0] = "Hash"
+	responseTable.Rows[14][0] = "RequestCount"
+	responseTable.BorderStyle.Fg = 7
+	responseTable.BorderStyle.Bg = 0
+	responseTable.TitleStyle.Fg = 7
+	responseTable.TitleStyle.Bg = 0
+	responseTable.TextStyle = ui.NewStyle(ui.ColorWhite)
+	responseTable.TextStyle.Bg = 0
+	responseTable.SetRect(85, 0, 180, 31)
+
+	return responseTable
+}
+
+func widgetDraw(d *drawArgs) int {
+	ip := d.ip
+	i := d.index
+	response := d.response
+	edgeCharts := d.edgeCharts
+
+	edgeCharts[ip].BarColors = dynamicStatusCodeColor(response.StatusCode, edgeCharts[ip].BarColors)
+	if response.EdgeIP == ip {
+		edgeCharts[ip].Data[i] = append(edgeCharts[ip].Data[i], float64(response.StatusCode))
+	}
+
+	if d.responseTable.Rows[0][i+1] == ip {
+		d.insertData()
+	}
+
+	d.historyTable.Rows[0][1] = response.GetStatusCode()
+	d.statusBox.Add(response.GetStatusCode())
+
+	if d.initLength != d.statusBox.Length() {
+		d.historyTable.Rows[0] = append(d.historyTable.Rows[0], response.GetStatusCode())
+		d.initLength++
+	}
+	d.rendering()
+
+	if len(edgeCharts[ip].Data[i]) == 9 && i == d.ipListLength {
+		for _, v := range edgeCharts {
+			v.Data = make([][]float64, 9)
+		}
+	}
+	return d.initLength
+}
+
 func getProtocol(data []string) (string, error) {
 	if len(data[0]) > 5 {
 		if data[0] != "http" {
@@ -54,205 +295,6 @@ func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.
 		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string) error {
-	if err := ui.Init(); err != nil {
-		return err
-	}
-	defer ui.Close()
-
-	if err := ui.Init(); err != nil {
-		return err
-	}
-	defer ui.Close()
-
-	header := make([]string, len(ips)+1)
-	header[0] = "IP"
-	copy(header[1:], ips)
-
-	history := widgets.NewTable()
-	history.Rows = [][]string{
-		make([]string, 2),
-	}
-	history.Rows[0][0] = "StatusCode"
-	history.Title = "History"
-	history.BorderStyle.Fg = 7
-	history.BorderStyle.Bg = 0
-	history.TitleStyle.Fg = 7
-	history.TitleStyle.Bg = 0
-	history.TextStyle = ui.NewStyle(ui.ColorWhite)
-	history.TextStyle.Bg = 0
-	history.SetRect(85, 31, 180, 41)
-
-	table := widgets.NewTable()
-	table.Rows = [][]string{
-		header,
-		make([]string, len(ips)+1), // statusCode
-		make([]string, len(ips)+1), // Server
-		make([]string, len(ips)+1), // Date
-		make([]string, len(ips)+1), // Last-Modified
-		make([]string, len(ips)+1), // Etag
-		make([]string, len(ips)+1), // Age
-		make([]string, len(ips)+1), // Expires
-		make([]string, len(ips)+1), // Cache-Control
-		make([]string, len(ips)+1), // Content-Type
-		make([]string, len(ips)+1), // Content-Length
-		make([]string, len(ips)+1), // Access-Control-Allow-Origin
-		make([]string, len(ips)+1), // Via
-		make([]string, len(ips)+1), // Hash
-		make([]string, len(ips)+1), // RequestCount
-	}
-
-	table.Title = "Response"
-	table.Rows[1][0] = "StatusCode"
-	table.Rows[2][0] = "Server"
-	table.Rows[3][0] = "Date"
-	table.Rows[4][0] = "Last-Modified"
-	table.Rows[5][0] = "ETag"
-	table.Rows[6][0] = "Age"
-	table.Rows[7][0] = "Expires"
-	table.Rows[8][0] = "Cache-Control"
-	table.Rows[9][0] = "Content-Type"
-	table.Rows[10][0] = "Content-Length"
-	table.Rows[11][0] = "ACA-Origin"
-	table.Rows[12][0] = "Via"
-	table.Rows[13][0] = "Hash"
-	table.Rows[14][0] = "RequestCount"
-
-	table.BorderStyle.Fg = 7
-	table.BorderStyle.Bg = 0
-	table.TitleStyle.Fg = 7
-	table.TitleStyle.Bg = 0
-	table.TextStyle = ui.NewStyle(ui.ColorWhite)
-	table.TextStyle.Bg = 0
-	table.SetRect(85, 0, 180, 31)
-
-	edgeCharts := make(map[string]*widgets.StackedBarChart, len(ips))
-
-	for _, ip := range ips {
-		sbc := widgets.NewStackedBarChart()
-		sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", addrInfo.DomainName)
-		sbc.TitleStyle.Bg = 0
-		sbc.Labels = ips
-		sbc.Data = make([][]float64, 9)
-		sbc.SetRect(0, 0, 85, 30)
-		sbc.BarWidth = 20
-		sbc.BorderStyle.Fg = 7
-		sbc.BorderStyle.Bg = 0
-		sbc.LabelStyles = []ui.Style{
-			{Fg: 7, Bg: 0, Modifier: ui.ModifierClear},
-		}
-		sbc.NumStyles = []ui.Style{
-			{Bg: 0, Modifier: ui.ModifierClear},
-		}
-		edgeCharts[ip] = sbc
-	}
-
-	uiEvents := ui.PollEvents()
-
-	statusBox := &set{}
-	initLength := 1
-
-delay:
-	for {
-		select {
-		case e := <-uiEvents:
-			if e.Type == ui.KeyboardEvent && (e.ID == "q" || e.ID == "<C-c>") {
-				os.Exit(0)
-				break delay
-			}
-
-		default:
-			for i, ip := range ips {
-				addrInfo.IP = ip
-				requestOptions.Port = viper.GetInt("port-number")
-				switch protocol {
-				case "https":
-					response := internal.GetStatusCodeOnHTTPS(addrInfo, requestOptions)
-					if response.Error != nil {
-						return response.Error
-					}
-					edgeCharts[ip].BarColors = dynamicStatusCodeColor(response.StatusCode, edgeCharts[ip].BarColors)
-					if response.EdgeIP == ip {
-						edgeCharts[ip].Data[i] = append(edgeCharts[ip].Data[i], float64(response.StatusCode))
-					}
-
-					if table.Rows[0][i+1] == ip {
-						table.Rows[1][i+1] = response.GetStatusCode()
-						table.Rows[2][i+1] = response.GetServer()
-						table.Rows[3][i+1] = response.GetDate()
-						table.Rows[4][i+1] = response.GetLastModified()
-						table.Rows[5][i+1] = response.GetEtag()
-						table.Rows[6][i+1] = response.GetAge()
-						table.Rows[7][i+1] = response.GetExpires()
-						table.Rows[8][i+1] = response.GetCacheControl()
-						table.Rows[9][i+1] = response.GetContentType()
-						table.Rows[10][i+1] = response.GetContentLength()
-						table.Rows[11][i+1] = response.GetACAOrigin()
-						table.Rows[12][i+1] = response.GetVia()
-						table.Rows[13][i+1] = response.GetHash()
-						table.Rows[14][i+1] = requestOptions.GetRequestCount()
-					}
-
-					history.Rows[0][1] = response.GetStatusCode()
-					statusBox.Add(response.GetStatusCode())
-					if initLength != len(*statusBox) {
-						history.Rows[0] = append(history.Rows[0], response.GetStatusCode())
-						initLength++
-					}
-
-					ui.Render(edgeCharts[ip])
-					ui.Render(table)
-					ui.Render(history)
-					time.Sleep(time.Millisecond * 500)
-
-					if len(edgeCharts[ip].Data[i]) == 9 && i == len(ips)-1 {
-						for _, v := range edgeCharts {
-							v.Data = make([][]float64, 9)
-						}
-					}
-				case "http":
-					response := internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
-					if response.Error != nil {
-						return response.Error
-					}
-					edgeCharts[ip].BarColors = dynamicStatusCodeColor(response.StatusCode, edgeCharts[ip].BarColors)
-					if response.EdgeIP == ip {
-						edgeCharts[ip].Data[i] = append(edgeCharts[ip].Data[i], float64(response.StatusCode))
-					}
-
-					if table.Rows[0][i+1] == ip {
-						table.Rows[1][i+1] = response.GetStatusCode()
-						table.Rows[2][i+1] = response.GetServer()
-						table.Rows[3][i+1] = response.GetDate()
-						table.Rows[4][i+1] = response.GetLastModified()
-						table.Rows[5][i+1] = response.GetEtag()
-						table.Rows[6][i+1] = response.GetAge()
-						table.Rows[7][i+1] = response.GetExpires()
-						table.Rows[8][i+1] = response.GetCacheControl()
-						table.Rows[9][i+1] = response.GetContentType()
-						table.Rows[10][i+1] = response.GetContentLength()
-						table.Rows[11][i+1] = response.GetACAOrigin()
-						table.Rows[12][i+1] = response.GetVia()
-						table.Rows[13][i+1] = response.GetHash()
-					}
-
-					ui.Render(edgeCharts[ip])
-					ui.Render(table)
-					time.Sleep(time.Millisecond * 500)
-
-					if len(edgeCharts[ip].Data[i]) == 9 && i == len(ips)-1 {
-						for _, v := range edgeCharts {
-							v.Data = make([][]float64, 9)
-						}
-					}
-				}
-			}
-		}
-		requestOptions.RequestCount++
 	}
 	return nil
 }
@@ -327,15 +369,12 @@ var (
 			}
 
 			url = splitData[1]
-
 			host = strings.TrimSpace(viper.GetString("host-name"))
 			referer = strings.TrimSpace(viper.GetString("referer-name"))
 			authorization = strings.TrimSpace(viper.GetString("authorization-name"))
 			mode := viper.GetBool("attack-mode")
 			dashboard := viper.GetBool("dashboard-mode")
-
 			domainName = strings.Split(url, "/")[0]
-
 			target = strings.TrimSpace(viper.GetString("target-domain"))
 			if target == "" {
 				target = domainName
