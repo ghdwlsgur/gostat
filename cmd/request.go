@@ -42,11 +42,11 @@ import (
 // 	return list
 // }
 
-type statusBox struct {
+type uniqueBox struct {
 	data []string
 }
 
-func (s *statusBox) Add(v string) {
+func (s *uniqueBox) Add(v string) {
 	for _, value := range s.data {
 		if value == v {
 			return
@@ -55,7 +55,7 @@ func (s *statusBox) Add(v string) {
 	s.data = append(s.data, v)
 }
 
-func (s *statusBox) Remove(v string) {
+func (s *uniqueBox) Remove(v string) {
 	for i, value := range s.data {
 		if value == v {
 			s.data = append(s.data[:i], s.data[i+1:]...)
@@ -64,7 +64,7 @@ func (s *statusBox) Remove(v string) {
 	}
 }
 
-func (s *statusBox) Contain(v string) bool {
+func (s *uniqueBox) Contain(v string) bool {
 	for _, value := range s.data {
 		if value == v {
 			return true
@@ -73,11 +73,11 @@ func (s *statusBox) Contain(v string) bool {
 	return false
 }
 
-func (s *statusBox) Length() int {
+func (s *uniqueBox) Length() int {
 	return len(s.data)
 }
 
-func (s *statusBox) Get() []string {
+func (s *uniqueBox) Get() []string {
 	list := make([]string, len(s.data))
 	copy(list, s.data)
 	return list
@@ -91,7 +91,8 @@ type drawArgs struct {
 	index          int
 	responseTable  *widgets.Table
 	historyTable   *widgets.Table
-	statusBox      *statusBox
+	statusBox      *uniqueBox
+	hashBox        *uniqueBox
 	requestOptions *internal.ReqOptions
 }
 
@@ -130,13 +131,15 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	}
 	defer ui.Close()
 
-	statusBox := &statusBox{}
+	statusBox := &uniqueBox{}
+	hashBox := &uniqueBox{}
 	historyTable := createHistoryTable(protocol)
 	responseTable := createResponseTable(ips)
 	edgeCharts := createEdgeChart(addrInfo.DomainName, ips)
 	uiEvents := ui.PollEvents()
 
 	statusBox.data = append(statusBox.data, "StatusCode")
+	hashBox.data = append(hashBox.data, "All-Edge Hash")
 
 delay:
 	for {
@@ -166,6 +169,7 @@ delay:
 						responseTable:  responseTable,
 						historyTable:   historyTable,
 						statusBox:      statusBox,
+						hashBox:        hashBox,
 						requestOptions: requestOptions,
 					})
 				case "http":
@@ -183,6 +187,7 @@ delay:
 						responseTable:  responseTable,
 						historyTable:   historyTable,
 						statusBox:      statusBox,
+						hashBox:        hashBox,
 						requestOptions: requestOptions,
 					})
 				}
@@ -222,8 +227,8 @@ func createHistoryTable(protocol string) *widgets.Table {
 	historyTable := widgets.NewTable()
 	historyTable.Rows = [][]string{
 		make([]string, 2), // StatusCode
+		make([]string, 2), // Hash
 	}
-	historyTable.Rows[0][0] = "StatusCode"
 	historyTable.Title = "History"
 	historyTable.BorderStyle.Fg = 7
 	historyTable.BorderStyle.Bg = 0
@@ -307,7 +312,14 @@ func widgetDraw(d *drawArgs) {
 	}
 
 	d.statusBox.Add(response.GetStatusCode())
+	d.hashBox.Add(response.GetHash())
 	d.historyTable.Rows[0] = d.statusBox.Get()
+
+	if d.hashBox.Length() == 2 {
+		d.historyTable.Rows[1] = []string{"All-Edge Hash", "Same"}
+	} else {
+		d.historyTable.Rows[1] = []string{"All-Edge Hash", "Different"}
+	}
 	d.rendering()
 
 	if len(edgeCharts[ip].Data[i]) == 9 && i == d.ipListLength {
