@@ -56,7 +56,22 @@ func (r Response) GetServer() string {
 }
 
 func (r Response) GetDate() string {
-	return r.Date
+	layout := "Mon, 02 Jan 2006 15:04:05 MST"
+	t, err := time.Parse(layout, r.Date)
+	if err != nil {
+		return "Failed to parse time"
+	}
+
+	loc, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return "Failed to load location"
+	}
+
+	krTime := t.In(loc)
+	krLayout := "2006-01-02 15:04:05"
+	krStr := krTime.Format(krLayout)
+
+	return krStr
 }
 
 func (r Response) GetLastModified() string {
@@ -296,10 +311,6 @@ func ResolveHTTPS(addr *Address, opt *ReqOptions) error {
 			color.HiBlackString("Reqeust Count"),
 			opt.getRequestCount(),
 		)
-		if resp.StatusCode/100 != 2 {
-			fmt.Printf(", %s: %s\n", color.HiBlackString("IP"), color.HiYellowString(addr.getIP()))
-		}
-
 	}
 
 	return nil
