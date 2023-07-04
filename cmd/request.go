@@ -64,8 +64,10 @@ type drawArgs struct {
 	responseTable          *widgets.Table
 	statusCodeHistoryTable *widgets.Table
 	hashHistoryTable       *widgets.Table
+	timeHistoryTable       *widgets.Table
 	statusBox              *uniqueBox
 	hashBox                *uniqueBox
+	timeBox                *uniqueBox
 	requestOptions         *internal.ReqOptions
 }
 
@@ -74,6 +76,7 @@ func (d drawArgs) rendering() {
 	ui.Render(d.responseTable)
 	ui.Render(d.statusCodeHistoryTable)
 	ui.Render(d.hashHistoryTable)
+	ui.Render(d.timeHistoryTable)
 	time.Sleep(time.Millisecond * 500)
 }
 
@@ -107,14 +110,17 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 
 	statusBox := &uniqueBox{}
 	hashBox := &uniqueBox{}
+	timeBox := &uniqueBox{}
 	statusCodeHistoryTable := createHistoryTable("statusCode")
 	hashHistoryTable := createHistoryTable("hash")
+	timeHistoryTable := createHistoryTable("time")
 	responseTable := createResponseTable(ips)
 	edgeCharts := createEdgeChart(addrInfo.DomainName, ips)
 	uiEvents := ui.PollEvents()
 
 	statusBox.data = append(statusBox.data, "StatusCode")
 	hashBox.data = append(hashBox.data, "Hash")
+	timeBox.data = append(timeBox.data, "Time")
 
 delay:
 	for {
@@ -144,8 +150,10 @@ delay:
 						responseTable:          responseTable,
 						statusCodeHistoryTable: statusCodeHistoryTable,
 						hashHistoryTable:       hashHistoryTable,
+						timeHistoryTable:       timeHistoryTable,
 						statusBox:              statusBox,
 						hashBox:                hashBox,
+						timeBox:                timeBox,
 						requestOptions:         requestOptions,
 					})
 				case "http":
@@ -163,8 +171,10 @@ delay:
 						responseTable:          responseTable,
 						statusCodeHistoryTable: statusCodeHistoryTable,
 						hashHistoryTable:       hashHistoryTable,
+						timeHistoryTable:       timeHistoryTable,
 						statusBox:              statusBox,
 						hashBox:                hashBox,
+						timeBox:                timeBox,
 						requestOptions:         requestOptions,
 					})
 				}
@@ -216,9 +226,12 @@ func createHistoryTable(name string) *widgets.Table {
 	case "statusCode":
 		historyTable.Title = "StatusCode History"
 		historyTable.SetRect(85, 31, 180, 34)
+	case "time":
+		historyTable.Title = "Time History"
+		historyTable.SetRect(85, 34, 180, 37)
 	case "hash":
 		historyTable.Title = "Hash History"
-		historyTable.SetRect(85, 34, 180, 37)
+		historyTable.SetRect(85, 37, 180, 40)
 	}
 
 	return historyTable
@@ -274,7 +287,7 @@ func createResponseTable(ips []string) *widgets.Table {
 	return responseTable
 }
 
-func widgetDraw(d *drawArgs) {
+func widgetDraw(d *drawArgs) int {
 	ip := d.ip
 	i := d.index
 	response := d.response
@@ -289,11 +302,18 @@ func widgetDraw(d *drawArgs) {
 		d.insertData()
 	}
 
+	before := d.statusBox.Length()
 	d.statusBox.Add(response.GetStatusCode())
 	d.hashBox.Add(response.GetHash())
+	after := d.statusBox.Length()
+
+	if before < after {
+		d.timeBox.Add(response.GetDate())
+	}
 
 	d.statusCodeHistoryTable.Rows[0] = d.statusBox.Get()
 	d.hashHistoryTable.Rows[0] = d.hashBox.Get()
+	d.timeHistoryTable.Rows[0] = d.timeBox.Get()
 	d.rendering()
 
 	if len(edgeCharts[ip].Data[i]) == 9 && i == d.ipListLength {
@@ -301,6 +321,8 @@ func widgetDraw(d *drawArgs) {
 			v.Data = make([][]float64, 9)
 		}
 	}
+
+	return d.statusBox.Length()
 }
 
 func getProtocol(data []string) (string, error) {
