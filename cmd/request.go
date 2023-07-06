@@ -308,7 +308,7 @@ func widgetDraw(d *drawArgs) int {
 	after := d.statusBox.Length()
 
 	if before < after {
-		d.timeBox.Add(response.GetDate())
+		d.timeBox.Add(response.GetDateKst())
 	}
 
 	d.statusCodeHistoryTable.Rows[0] = d.statusBox.Get()

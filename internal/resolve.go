@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/miekg/dns"
 	"github.com/tcnksm/go-httpstat"
 )
 
@@ -55,7 +56,7 @@ func (r Response) GetServer() string {
 	return r.Server
 }
 
-func (r Response) GetDate() string {
+func (r Response) GetDateKst() string {
 	layout := "Mon, 02 Jan 2006 15:04:05 MST"
 	t, err := time.Parse(layout, r.Date)
 	if err != nil {
@@ -72,6 +73,10 @@ func (r Response) GetDate() string {
 	krStr := krTime.Format(krLayout)
 
 	return krStr
+}
+
+func (r Response) GetDate() string {
+	return r.Date
 }
 
 func (r Response) GetLastModified() string {
@@ -548,4 +553,31 @@ func GetStatusCodeOnHTTP(addr *Address, opt *ReqOptions) *Response {
 	}
 
 	return response
+}
+
+func QueryDnsRecord() ([]string, error) {
+	name := "ns.cdn.cloudn.co.kr"
+	server := "8.8.8.8"
+
+	c := dns.Client{}
+	m := dns.Msg{}
+	m.SetQuestion(dns.Fqdn(name), dns.TypeA)
+
+	r, _, err := c.Exchange(&m, server+":53")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(r.Answer) < 1 {
+		return nil, fmt.Errorf("Not Find A record")
+	}
+
+	var result []string
+	for _, ans := range r.Answer {
+		if a, ok := ans.(*dns.A); ok {
+			result = append(result, string(a.A))
+		}
+	}
+
+	return result, nil
 }
