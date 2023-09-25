@@ -195,11 +195,7 @@ func getLatenciesOnDashBoard(url string, resultC chan<- Result) error {
 func showLatencyDashBoard(result *httpstat.Result, protocol string) {
 	latencyTable := createLatencyTable(protocol)
 
-	if protocol == "http" {
-		latencyTable = sendChannelOnHTTP(result, latencyTable)
-	} else {
-		latencyTable = sendChannelOnHTTPS(result, latencyTable)
-	}
+	latencyTable = getLatencyData(result, latencyTable, protocol)
 	ui.Render(latencyTable)
 }
 
@@ -252,79 +248,35 @@ func createLatencyTable(protocol string) *widgets.Table {
 	return latencyTable
 }
 
-func sendChannelOnHTTP(result *httpstat.Result, latencyTable *widgets.Table) *widgets.Table {
-	dnsChan := make(chan string)
-	tcpChan := make(chan string)
-	serverChan := make(chan string)
-	rttChan := make(chan string)
+func getLatencyData(result *httpstat.Result, latencyTable *widgets.Table, protocol string) *widgets.Table {
+	dnsChan, tcpChan, tlsChan, serverChan, rttChan := make(chan string), make(chan string), make(chan string), make(chan string), make(chan string)
 
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		dnsChan <- result.DNSLookup.String()
-	}()
+	sendAfterDelay := func(ch chan<- string, value string) {
+		<-time.After(500 * time.Millisecond)
+		ch <- value
+	}
 
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		tcpChan <- result.TCPConnection.String()
-	}()
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		serverChan <- result.ServerProcessing.String()
-	}()
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		rttChan <- result.Total(time.Now()).String()
-	}()
+	go sendAfterDelay(dnsChan, result.DNSLookup.String())
+	go sendAfterDelay(tcpChan, result.TCPConnection.String())
+	if protocol == "https" {
+		go sendAfterDelay(tlsChan, result.TLSHandshake.String())
+	}
+	go sendAfterDelay(serverChan, result.ServerProcessing.String())
+	go sendAfterDelay(rttChan, result.Total(time.Now()).String())
 
 	latencyTable.Rows[0][1] = <-dnsChan
 	latencyTable.Rows[1][1] = <-tcpChan
-	latencyTable.Rows[2][1] = <-serverChan
-	total := result.DNSLookup + result.TCPConnection + result.ServerProcessing
-	latencyTable.Rows[3][1] = total.String()
 
-	return latencyTable
-}
-
-func sendChannelOnHTTPS(result *httpstat.Result, latencyTable *widgets.Table) *widgets.Table {
-	dnsChan := make(chan string)
-	tcpChan := make(chan string)
-	tlsChan := make(chan string)
-	serverChan := make(chan string)
-	rttChan := make(chan string)
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		dnsChan <- result.DNSLookup.String()
-	}()
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		tcpChan <- result.TCPConnection.String()
-	}()
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		tlsChan <- result.TLSHandshake.String()
-	}()
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		serverChan <- result.ServerProcessing.String()
-	}()
-
-	go func() {
-		time.Sleep(time.Millisecond * 50)
-		rttChan <- result.Total(time.Now()).String()
-	}()
-
-	latencyTable.Rows[0][1] = <-dnsChan
-	latencyTable.Rows[1][1] = <-tcpChan
-	latencyTable.Rows[2][1] = <-tlsChan
-	latencyTable.Rows[3][1] = <-serverChan
-	total := result.DNSLookup + result.TCPConnection + result.TLSHandshake + result.ServerProcessing
-	latencyTable.Rows[4][1] = total.String()
+	if protocol == "http" {
+		total := result.DNSLookup + result.TCPConnection + result.ServerProcessing
+		latencyTable.Rows[2][1] = <-serverChan
+		latencyTable.Rows[3][1] = total.String()
+	} else if protocol == "https" {
+		total := result.DNSLookup + result.TCPConnection + result.TLSHandshake + result.ServerProcessing
+		latencyTable.Rows[2][1] = <-tlsChan
+		latencyTable.Rows[3][1] = <-serverChan
+		latencyTable.Rows[4][1] = total.String()
+	}
 
 	return latencyTable
 }
