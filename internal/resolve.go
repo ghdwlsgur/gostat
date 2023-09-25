@@ -136,32 +136,32 @@ func (rr ResolveResponse) getRespStatus() string {
 	return rr.respStatus
 }
 
-func (ro ReqOptions) getAuthorization() string {
+func (ro *ReqOptions) getAuthorization() string {
 	return ro.Authorization
 }
 
-func (ro ReqOptions) getHost() string {
+func (ro *ReqOptions) getHost() string {
 	return ro.Host
 }
 
-func (ro ReqOptions) getReferer() string {
+func (ro *ReqOptions) getReferer() string {
 	return ro.Referer
 }
 
-func (ro ReqOptions) getRange() string {
+func (ro *ReqOptions) getRange() string {
 	return ro.ByteRange
 }
 
-func (ro ReqOptions) getPort() int {
+func (ro *ReqOptions) getPort() int {
 	return ro.Port
 }
 
-func (ro ReqOptions) getAttackMode() bool {
+func (ro *ReqOptions) getAttackMode() bool {
 	return ro.AttackMode
 }
 
-func (ro ReqOptions) getTransport() http.Transport {
-	return ro.Transport
+func (ro *ReqOptions) getTransport() http.Transport {
+	return *ro.Transport.Clone()
 }
 
 func (ro *ReqOptions) getRequestCount() int {
@@ -352,7 +352,7 @@ func SetTransport(domainName, ip string) http.Transport {
 	}
 
 	r := &ReqOptions{
-		Transport: transport,
+		Transport: *transport.Clone(),
 	}
 
 	return r.getTransport()
@@ -569,7 +569,7 @@ func QueryDnsRecord() ([]string, error) {
 	}
 
 	if len(r.Answer) < 1 {
-		return nil, fmt.Errorf("Not Find A record")
+		return nil, fmt.Errorf("not find a record")
 	}
 
 	var result []string
