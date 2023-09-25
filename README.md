@@ -21,7 +21,7 @@ This is an interactive CLI tool that uses the net/http package to make an HTTP G
 
 <div align="center">
 
-![overview](https://github.com/ghdwlsgur/gostat/assets/77400522/70a1be3b-943d-483c-847c-4592d5e02def)
+![overview](https://github.com/ghdwlsgur/gostat/assets/77400522/0661f993-9cda-4382-9fe3-b54bfa5b57ad)
 
 ```bash
 gostat request https://ghdwlsgur.github.io/ -d
