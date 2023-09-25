@@ -72,12 +72,15 @@ type drawArgs struct {
 }
 
 func (d drawArgs) rendering() {
+
 	ui.Render(d.edgeCharts[d.ip])
 	ui.Render(d.responseTable)
 	ui.Render(d.statusCodeHistoryTable)
 	ui.Render(d.hashHistoryTable)
 	ui.Render(d.timeHistoryTable)
-	time.Sleep(time.Millisecond * 500)
+
+	// statuscode table delay
+	<-time.After(500 * time.Millisecond)
 }
 
 func (d drawArgs) insertData() {
