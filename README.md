@@ -41,19 +41,28 @@ curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223. 130.195.95
 
 # Installation
 
-### homebrew
+### Mac
 
 ```bash
 # [install]
-brew tap ghdwlsgur/gostat
-brew install gostat
+$ brew tap ghdwlsgur/gostat
+$ brew install gostat
 
 # [upgrade]
-brew update --verbose
-brew upgrade gostat
+$ brew update --verbose
+$ brew upgrade gostat
 ```
 
-### [Download](https://github.com/ghdwlsgur/gostat/releases)
+### Linux
+
+```bash
+# [install]
+$ wget https://github.com/ghdwlsgur/gostat/releases/download/v1.2.6/gostat_1.2.6_Linux_`uname -m`.tar.gz
+$ tar -xzvf ./gostat_1.2.6_Linux_`uname -m`.tar.gz
+
+# [execute]
+./gostat request https://ghdwlsgur.github.io -d
+```
 
 # Compare
 
