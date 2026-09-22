@@ -1,4 +1,27 @@
+# macOS
 .DS_Store
-vendor
-dist
-gopath
+
+# Compiled binary, from `go build` at the repository root
+/gostat
+/gostat.exe
+
+# goreleaser output
+dist/
+
+# `go mod vendor` output. The release stopped needing a vendor tree, but a
+# stray one should still never be committed.
+vendor/
+
+# Test, coverage and profile output
+coverage.txt
+coverage.out
+*.test
+*.prof
+
+# Go workspace files, which belong to one checkout rather than the repository
+go.work
+go.work.sum
+
+# Editors
+.idea/
+.vscode/
