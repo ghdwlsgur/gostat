@@ -19,7 +19,8 @@ const (
 	// Panel heights, in lines, borders included. Everything else is given a
 	// share of whatever is left, so the view fits the terminal it is in
 	// rather than demanding a particular size.
-	latencyHeight = 8
+	// Five phases, the total, the reused note, and the borders.
+	latencyHeight = 9
 	historyHeight = 3
 )
 
@@ -135,10 +136,6 @@ func requestCountRow() int {
 	return len(responseRows) + 1
 }
 
-func newLatencyTable() *tview.Table {
-	return newTable("Latency")
-}
-
 func newHistoryView(title string) *tview.TextView {
 	view := tview.NewTextView().SetDynamicColors(true)
 	view.SetBorder(true).SetTitle(fmt.Sprintf(" %s History ", title))
@@ -152,7 +149,7 @@ func newHistoryView(title string) *tview.TextView {
 func layout(d *Dashboard, subtitle string) tview.Primitive {
 	left := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(d.chart, 0, 1, false).
-		AddItem(d.latencyTable, latencyHeight, 0, false)
+		AddItem(d.latency, latencyHeight, 0, false)
 
 	right := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(d.responseTable, 0, 1, false).

@@ -246,6 +246,9 @@ func scaleCells(d, slowest time.Duration, width int) int {
 // latency table underneath.
 func compactDuration(d time.Duration) string {
 	switch {
+	case d <= 0:
+		// A phase that did not happen reads better as 0s than as 0ns.
+		return "0s"
 	case d >= time.Second:
 		return fmt.Sprintf("%.2fs", d.Seconds())
 	case d >= time.Millisecond:

@@ -33,7 +33,7 @@ type Dashboard struct {
 
 	chart         *edgeChart
 	responseTable *tview.Table
-	latencyTable  *tview.Table
+	latency       *latencyPanel
 	statusSeen    *seen
 	changedAt     *seen
 	hashSeen      *seen
@@ -78,7 +78,7 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 		edges:         edges,
 		chart:         newEdgeChart(edges),
 		responseTable: newResponseTable(edges),
-		latencyTable:  newLatencyTable(),
+		latency:       newLatencyPanel(),
 		statusSeen:    newSeen("StatusCode"),
 		changedAt:     newSeen("Time"),
 		hashSeen:      newSeen("Hash"),
@@ -130,7 +130,7 @@ func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 	d.responseTable.GetCell(requestCountRow(), index+1).
 		SetText(strconv.FormatInt(d.requests, 10))
 
-	d.fillLatency(res.Trace)
+	d.latency.set(res.Trace)
 
 	// A status not seen before is worth a timestamp; the same one repeating
 	// is not.
@@ -138,29 +138,6 @@ func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 		d.changedAt.add(report.SeoulTime(res.Header("Date")))
 	}
 	d.hashSeen.add(shortHash(res.BodySum))
-}
-
-// fillLatency rewrites the latency table for one request, clearing the row a
-// plaintext request leaves unused rather than letting a stale TLS handshake
-// sit there.
-func (d *Dashboard) fillLatency(trace probe.Trace) {
-	d.latencyTable.Clear()
-
-	phases := trace.Phases()
-	for i, phase := range phases {
-		d.latencyTable.SetCell(i, 0, labelCell(phase.Name))
-		d.latencyTable.SetCell(i, 1, valueCell(phase.Duration.String()))
-	}
-
-	d.latencyTable.SetCell(len(phases), 0, labelCell("Total"))
-	d.latencyTable.SetCell(len(phases), 1, valueCell(trace.Total.String()))
-
-	if trace.Reused {
-		// A pooled connection skips the phases above, and a zero there means
-		// "did not happen again", not "took no time".
-		d.latencyTable.SetCell(len(phases)+1, 0, labelCell(""))
-		d.latencyTable.SetCell(len(phases)+1, 1, valueCell("connection reused"))
-	}
 }
 
 // seen is the ordered set of distinct values a field has taken, shown as a
