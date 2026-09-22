@@ -124,7 +124,7 @@ $ gostat request https://www.naver.com -t 223.130.200.104 -H www.naver.com
 $ gostat request https://www.naver.com/asset.js -t naver.com -r http://naver.com
 ```
 
-Press `q` or `ctrl-c` to leave the dashboard.
+Press `q` or `ctrl-c` to leave the dashboard. It lays itself out to the terminal it is in, so a narrow window scrolls the response table rather than hiding it.
 
 # Reading the output
 
@@ -210,7 +210,7 @@ $ bash scripts/deploy.sh release_test   # a full release, built locally, publish
 | `cmd` | Flags, and wiring the pieces below together |
 | `internal/probe` | Sending and measuring one request. Prints nothing |
 | `internal/report` | Rendering a result to a writer |
-| `internal/dashboard` | Drawing a result with termui |
+| `internal/dashboard` | Drawing a result with [tview](https://github.com/rivo/tview) |
 
 # License
 

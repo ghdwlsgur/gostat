@@ -1,175 +1,196 @@
-// Package dashboard draws the live termui view: what every edge answers, how
-// those answers change over time, and where each request spends its time.
+// Package dashboard draws the live view: what every edge answers, how those
+// answers change over time, and where each request spends its time.
 package dashboard
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
-	ui "github.com/gizak/termui/v3"
-	"github.com/gizak/termui/v3/widgets"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 
 	"github.com/ghdwlsgur/gostat/internal/probe"
 	"github.com/ghdwlsgur/gostat/internal/report"
 )
 
-// redrawInterval keeps a sweep from spinning faster than the eye can follow.
-const redrawInterval = 500 * time.Millisecond
+// sweepInterval paces the probes so the view does not flicker faster than it
+// can be read.
+const sweepInterval = 500 * time.Millisecond
 
-// chartHistory is how many samples one edge keeps before its chart restarts.
-const chartHistory = 9
-
-// Dashboard holds the widgets and the running history behind them.
+// Dashboard owns the widgets and the history behind them. Everything here is
+// touched from the application's own goroutine, never from the prober.
 type Dashboard struct {
+	app    *tview.Application
 	client *probe.Client
 	url    *url.URL
 	edges  []string
 
 	requests int64
+	recent   map[string][]int
 
-	charts        map[string]*widgets.StackedBarChart
-	responseTable *widgets.Table
-	latencyTable  *widgets.Table
+	statusTable   *tview.Table
+	responseTable *tview.Table
+	latencyTable  *tview.Table
 	statusSeen    *seen
-	hashSeen      *seen
 	changedAt     *seen
+	hashSeen      *seen
 }
 
 // Run takes over the terminal until q or ctrl-c, probing every edge in turn.
 func Run(ctx context.Context, client *probe.Client, u *url.URL, edges []string) error {
-	if err := ui.Init(); err != nil {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	d := newDashboard(client, u, edges)
+
+	d.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyCtrlC || event.Rune() == 'q' {
+			// Cancelling rather than stopping outright lets the prober unwind
+			// first, so nothing queues a redraw against an application that
+			// has already torn the screen down.
+			cancel()
+			return nil
+		}
+		return event
+	})
+
+	failed := make(chan error, 1)
+	go func() {
+		failed <- d.probeLoop(ctx)
+		d.app.Stop()
+	}()
+
+	if err := d.app.Run(); err != nil {
 		return err
 	}
-	// Returning rather than exiting is what lets this run and hand the
-	// terminal back in the state it was found.
-	defer ui.Close()
 
+	return <-failed
+}
+
+func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 	d := &Dashboard{
+		app:           tview.NewApplication(),
 		client:        client,
 		url:           u,
 		edges:         edges,
-		charts:        newEdgeChart(u.Hostname(), edges),
+		recent:        make(map[string][]int, len(edges)),
+		statusTable:   newStatusTable(edges),
 		responseTable: newResponseTable(edges),
 		latencyTable:  newLatencyTable(),
-		statusSeen:    newSeen("StatusCode", 0),
-		changedAt:     newSeen("Time", 1),
-		hashSeen:      newSeen("Hash", 2),
+		statusSeen:    newSeen("StatusCode"),
+		changedAt:     newSeen("Time"),
+		hashSeen:      newSeen("Hash"),
 	}
 
-	return d.loop(ctx)
+	d.app.SetRoot(layout(d, u.String()), true)
+
+	return d
 }
 
-func (d *Dashboard) loop(ctx context.Context) error {
-	events := ui.PollEvents()
-
+// probeLoop walks the edges until the run is cancelled or a probe fails. It
+// runs on its own goroutine and touches no widget directly: every change goes
+// through the application queue.
+func (d *Dashboard) probeLoop(ctx context.Context) error {
 	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case e := <-events:
-			if e.Type == ui.KeyboardEvent && (e.ID == "q" || e.ID == "<C-c>") {
+		for i, edge := range d.edges {
+			if ctx.Err() != nil {
 				return nil
 			}
-		default:
-			if err := d.sweep(ctx); err != nil {
+
+			res, err := d.client.Do(ctx, d.url, edge)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
 				return err
+			}
+
+			d.app.QueueUpdateDraw(func() { d.record(i, edge, res) })
+
+			select {
+			case <-time.After(sweepInterval):
+			case <-ctx.Done():
+				return nil
 			}
 		}
 	}
-}
-
-// sweep probes every edge once, redrawing after each one.
-func (d *Dashboard) sweep(ctx context.Context) error {
-	for i, edge := range d.edges {
-		res, err := d.client.Do(ctx, d.url, edge)
-		if err != nil {
-			return err
-		}
-
-		d.requests++
-		d.record(i, edge, res)
-		d.render(edge)
-
-		<-time.After(redrawInterval)
-	}
-
-	return nil
 }
 
 // record folds one result into the widgets.
 func (d *Dashboard) record(index int, edge string, res *probe.Result) {
-	chart := d.charts[edge]
-	chart.BarColors = barColor(res.StatusCode)
-	chart.Data[index] = append(chart.Data[index], float64(res.StatusCode))
+	d.requests++
+
+	d.recordStatus(index, edge, res.StatusCode)
 
 	for row, spec := range responseRows {
-		d.responseTable.Rows[row+1][index+1] = spec.value(res)
+		d.responseTable.GetCell(row+1, index+1).SetText(spec.value(res))
 	}
-	d.responseTable.Rows[len(d.responseTable.Rows)-1][index+1] = strconv.FormatInt(d.requests, 10)
+	d.responseTable.GetCell(requestCountRow(), index+1).
+		SetText(strconv.FormatInt(d.requests, 10))
 
-	fillLatencyTable(d.latencyTable, res.Trace)
+	d.fillLatency(res.Trace)
 
-	// A new status is worth a timestamp; the same status repeating is not.
-	statusChanged := d.statusSeen.add(strconv.Itoa(res.StatusCode))
-	d.hashSeen.add(shortHash(res.BodySum))
-	if statusChanged {
+	// A status not seen before is worth a timestamp; the same one repeating
+	// is not.
+	if d.statusSeen.add(strconv.Itoa(res.StatusCode)) {
 		d.changedAt.add(report.SeoulTime(res.Header("Date")))
 	}
+	d.hashSeen.add(shortHash(res.BodySum))
+}
 
-	// Every chart restarts together, so the bars stay comparable.
-	if len(chart.Data[index]) >= chartHistory && index == len(d.edges)-1 {
-		for _, c := range d.charts {
-			c.Data = make([][]float64, len(d.edges))
-		}
+// recordStatus appends to the edge's strip of recent codes, dropping the
+// oldest once the row is full.
+func (d *Dashboard) recordStatus(index int, edge string, statusCode int) {
+	codes := append(d.recent[edge], statusCode)
+	if len(codes) > recentStatuses {
+		codes = codes[len(codes)-recentStatuses:]
+	}
+	d.recent[edge] = codes
+
+	for i, code := range codes {
+		d.statusTable.SetCell(index, i+1, tview.NewTableCell(strconv.Itoa(code)).
+			SetTextColor(statusColor(code)).
+			SetSelectable(false))
 	}
 }
 
-func (d *Dashboard) render(edge string) {
-	ui.Render(
-		d.charts[edge],
-		d.responseTable,
-		d.latencyTable,
-		d.statusSeen.table,
-		d.changedAt.table,
-		d.hashSeen.table,
-	)
-}
+// fillLatency rewrites the latency table for one request, clearing the row a
+// plaintext request leaves unused rather than letting a stale TLS handshake
+// sit there.
+func (d *Dashboard) fillLatency(trace probe.Trace) {
+	d.latencyTable.Clear()
 
-// fillLatencyTable writes the phases of one request, blanking the rows a
-// plaintext request does not use.
-func fillLatencyTable(table *widgets.Table, trace probe.Trace) {
 	phases := trace.Phases()
-
-	for i := range table.Rows {
-		table.Rows[i][0] = ""
-		table.Rows[i][1] = ""
-	}
-
 	for i, phase := range phases {
-		table.Rows[i][0] = phase.Name
-		table.Rows[i][1] = phase.Duration.String()
+		d.latencyTable.SetCell(i, 0, labelCell(phase.Name))
+		d.latencyTable.SetCell(i, 1, valueCell(phase.Duration.String()))
 	}
 
-	total := len(phases)
-	table.Rows[total][0] = "Total"
-	table.Rows[total][1] = trace.Total.String()
+	d.latencyTable.SetCell(len(phases), 0, labelCell("Total"))
+	d.latencyTable.SetCell(len(phases), 1, valueCell(trace.Total.String()))
+
+	if trace.Reused {
+		// A pooled connection skips the phases above, and a zero there means
+		// "did not happen again", not "took no time".
+		d.latencyTable.SetCell(len(phases)+1, 0, labelCell(""))
+		d.latencyTable.SetCell(len(phases)+1, 1, valueCell("connection reused"))
+	}
 }
 
-// seen is an ordered set of the distinct values a field has taken, rendered as
-// a one-row history table.
+// seen is the ordered set of distinct values a field has taken, shown as a
+// one-line history strip.
 type seen struct {
+	title  string
 	values []string
-	table  *widgets.Table
+	view   *tview.TextView
 }
 
-// newSeen builds the nth history strip down the right-hand column.
-func newSeen(title string, n int) *seen {
-	s := &seen{
-		values: []string{title},
-		table:  newHistoryTable(title+" History", n),
-	}
+func newSeen(title string) *seen {
+	s := &seen{title: title, view: newHistoryView(title)}
 	s.sync()
 
 	return s
@@ -190,7 +211,18 @@ func (s *seen) add(value string) bool {
 }
 
 func (s *seen) sync() {
-	row := make([]string, len(s.values))
-	copy(row, s.values)
-	s.table.Rows = [][]string{row}
+	if len(s.values) == 0 {
+		s.view.SetText(fmt.Sprintf("[gray]no %s yet", strings.ToLower(s.title)))
+		return
+	}
+
+	s.view.SetText(strings.Join(s.values, "   "))
+}
+
+// list returns the values recorded so far, as a copy.
+func (s *seen) list() []string {
+	out := make([]string, len(s.values))
+	copy(out, s.values)
+
+	return out
 }
