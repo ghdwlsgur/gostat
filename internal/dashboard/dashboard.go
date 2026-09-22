@@ -29,7 +29,7 @@ type Dashboard struct {
 
 	requests int64
 
-	chart         *edgeChart
+	chart         *statusChart
 	responseTable *tview.Table
 	latency       *latencyPanel
 	changes       *changesPanel
@@ -72,7 +72,7 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 		client:        client,
 		url:           u,
 		edges:         edges,
-		chart:         newEdgeChart(edges),
+		chart:         newStatusChart(edges),
 		responseTable: newResponseTable(edges),
 		latency:       newLatencyPanel(),
 		changes:       newChangesPanel(),
@@ -116,7 +116,7 @@ func (d *Dashboard) probeLoop(ctx context.Context) error {
 func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 	d.requests++
 
-	d.chart.record(edge, res.StatusCode, res.Trace)
+	d.chart.record(edge, res.StatusCode)
 
 	for row, spec := range responseRows {
 		cell := d.responseTable.GetCell(row+1, index+1).SetText(spec.value(res))

@@ -20,8 +20,8 @@ const (
 	// share of whatever is left, so the view fits the terminal it is in
 	// rather than demanding a particular size.
 
-	// Five phases, the total, the reused note, and the borders.
-	latencyHeight = 9
+	// Five phases, the total, the reused note, the legend, and the borders.
+	latencyHeight = 10
 
 	// Status, body and the timestamp, plus the borders.
 	changesHeight = 5
