@@ -41,6 +41,12 @@ function release
     exit 1
   fi
 
+  # goreleaser runs the suite too, but from its before-hooks, which is after
+  # the tag has been created and pushed. A failure there leaves a tag behind
+  # with no release to go with it, and the image workflow already started.
+  # Run it here, while backing out still costs nothing.
+  test
+
   git tag -a "$tag" -m "Add $tag"
   # Pushing the tag is also what starts the container image workflow.
   git push origin "$tag"
