@@ -20,7 +20,7 @@ The part that makes it more than `curl -I` is `-t`. Point it at one address and 
 
 <div align="center">
 
-![overview](https://github.com/ghdwlsgur/gostat/assets/77400522/0661f993-9cda-4382-9fe3-b54bfa5b57ad)
+![the dashboard, probing the four A records behind ghdwlsgur.github.io](./docs/dashboard.png)
 
 ```bash
 gostat request https://ghdwlsgur.github.io/ -d
@@ -67,7 +67,8 @@ $ brew install --cask gostat
 ### Linux
 
 ```bash
-$ VERSION=1.3.0
+# The archive name carries the version, so resolve the latest one first.
+$ VERSION=$(curl -fsSL https://api.github.com/repos/ghdwlsgur/gostat/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
 
 # [install] x86_64
 $ curl -fsSL https://github.com/ghdwlsgur/gostat/releases/download/v${VERSION}/gostat_${VERSION}_Linux_x86_64.tar.gz | tar -xz
@@ -151,6 +152,7 @@ waiting on the server says so at a glance.
 compared line by line. A header only gets a column once some edge has actually
 sent it, and keeps it afterwards — a CDN that never sends `Age` or `Via` does
 not spend two columns saying so.
+
 **Changes** says whether the answer has been stable: every status code that has
 come back, the digest of the body right now, and how often each has moved. An
 origin that stamps a request id into its output changes its digest on every
