@@ -158,9 +158,10 @@ not spend two columns saying so.
 **Changes** says whether the answer has been stable: every status code that has
 come back, what the edges are serving now, and how often each has moved. Each
 edge is followed separately — two edges can both be steady while serving
-different bodies — so the row shows the shared digest when they agree and says
-how many differ when they do not. The digest covers only the bytes that came
-back, which with the default `Range` is the first two.
+different bodies — so the row shows the shared digest when they agree, and how
+many distinct bodies there are when they do not. That is a count of bodies, not
+of edges: four edges serving two objects read as two. The digest covers only
+the bytes that came back, which with the default `Range` is the first two.
 
 The response table takes the arrow keys, since it is the one panel that can be
 wider than the terminal. Its header row and address column stay put while the
@@ -189,7 +190,7 @@ The middle column is how long that phase took on its own. The right column is th
 
 Below the timings are the headers that were sent and the headers that came back, sorted so two runs of the same command can be diffed, followed by the size and SHA-256 of **the bytes that came back**.
 
-That is worth reading carefully. With the default `Range: bytes=0-1` the digest covers two bytes, so it separates two edges serving a different object, and says nothing about an edit further into the same one. The response is authoritative about what it covers: the byte count is printed beside it. For a digest of the whole object, ask for the whole object — an origin that ignores `Range` answers `200` and the digest then covers everything it sent.
+That is worth reading carefully. With the default `Range: bytes=0-1` the digest covers two bytes, so it tells apart two responses **whose first two bytes differ** — and nothing else. Two different objects that begin alike have the same digest, and so does an object edited anywhere past its second byte. The byte count is printed beside the digest, so the response says how much it is speaking for. For a digest of the whole object, ask for the whole object: an origin that ignores `Range` answers `200`, and the digest then covers everything it sent.
 
 # How it works
 
