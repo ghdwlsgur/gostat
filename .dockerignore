@@ -1,0 +1,13 @@
+# Everything the build does not need. Keeping the context small is the
+# difference between sending a few hundred kilobytes and the whole history.
+.git
+.github
+dist
+gopath
+vendor
+*.md
+LICENSE
+Dockerfile
+.dockerignore
+.goreleaser.yaml
+scripts

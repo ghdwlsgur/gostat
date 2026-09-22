@@ -1,46 +1,52 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
-var (
-	// rootCmd represents the base command when called without any sub-commands
-	rootCmd = &cobra.Command{
-		Use:   "gostat",
-		Short: `gostat is an interactive CLI tool that proxies the A record of the input domain as a target and returns the response value received from the input URL.`,
-		Long:  `gostat is an interactive CLI tool that proxies the A record of the input domain as a target and returns the response value received from the input URL. It can also be used to check latency or to check whether each option is applied to the URL by adding headers and referrers to the request header.`,
-	}
-)
+// NewRootCommand builds the command tree. Nothing lives in a package
+// variable, so a test can build a tree of its own and point it at its own
+// output.
+func NewRootCommand(version string) *cobra.Command {
+	root := &cobra.Command{
+		Use:     "gostat",
+		Version: version,
+		Short:   `gostat is an interactive CLI tool that proxies the A record of the input domain as a target and returns the response value received from the input URL.`,
+		Long:    `gostat is an interactive CLI tool that proxies the A record of the input domain as a target and returns the response value received from the input URL. It can also be used to check latency or to check whether each option is applied to the URL by adding headers and referrers to the request header.`,
 
-// panicRed raises error with text.
-func panicRed(err error) {
-	fmt.Println(color.RedString("[err] %s", err.Error()))
-	os.Exit(1)
+		// A bad flag or argument is the user's mistake, not a crash, and
+		// cobra has already printed the usage by the time the error surfaces.
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+
+	root.AddCommand(newRequestCommand())
+
+	return root
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
+// Execute runs the command tree and turns an error into an exit status.
+//
+// Ctrl-c cancels the context rather than killing the process, so an in-flight
+// request unwinds and the terminal is handed back the way it was found.
 func Execute(version string) {
-	rootCmd.Version = version
-	if err := rootCmd.Execute(); err != nil {
-		panicRed(err)
-	}
-}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-// initConfig reads in config file and ENV variables if set.
-func initConfig() {
-	args := os.Args[1:]
-	_, _, err := rootCmd.Find(args)
-	if err != nil {
-		panicRed(err)
+	err := NewRootCommand(version).ExecuteContext(ctx)
+	switch {
+	case err == nil, errors.Is(err, context.Canceled):
+		return
+	default:
+		fmt.Fprintln(os.Stderr, color.RedString("[err] %s", err))
+		os.Exit(1)
 	}
-}
-
-func init() {
-	cobra.OnInitialize(initConfig)
 }
