@@ -158,72 +158,141 @@ func TestRendersAtSeveralSizes(t *testing.T) {
 	}
 }
 
-func TestResponseTableMatchesTheRowSpecs(t *testing.T) {
+// The table is an edge per row and a header per column, and only the headers
+// that carry something get one.
+func TestResponseTableIsOneRowPerEdge(t *testing.T) {
 	edges := []string{"1.1.1.1", "2.2.2.2"}
-	table := newResponseTable(edges)
+	table := newResponseTable()
 
-	// One header row, one row per spec, one request counter.
-	if want := len(responseRows) + 2; table.GetRowCount() != want {
-		t.Fatalf("table has %d rows, want %d", table.GetRowCount(), want)
+	latest := map[string]*probe.Result{
+		"1.1.1.1": sampleResult(http.StatusPartialContent),
+		"2.2.2.2": sampleResult(http.StatusServiceUnavailable),
 	}
-	if want := len(edges) + 1; table.GetColumnCount() != want {
-		t.Fatalf("table has %d columns, want %d", table.GetColumnCount(), want)
-	}
+	fillResponseTable(table, edges, latest, responseColumns(nil, edges, latest))
 
+	if got := table.GetRowCount(); got != len(edges)+1 {
+		t.Fatalf("table has %d rows, want a header plus %d edges", got, len(edges))
+	}
 	if got := table.GetCell(0, 0).Text; got != "IP" {
-		t.Errorf("header label = %q, want IP", got)
+		t.Errorf("the corner cell is %q, want IP", got)
 	}
 	for i, edge := range edges {
-		if got := table.GetCell(0, i+1).Text; got != edge {
-			t.Errorf("header column %d = %q, want %q", i+1, got, edge)
+		if got := table.GetCell(i+1, 0).Text; got != edge {
+			t.Errorf("row %d is labelled %q, want %q", i+1, got, edge)
 		}
-	}
-	for i, spec := range responseRows {
-		if got := table.GetCell(i+1, 0).Text; got != spec.label {
-			t.Errorf("row %d label = %q, want %q", i+1, got, spec.label)
-		}
-	}
-	if got := table.GetCell(requestCountRow(), 0).Text; got != "RequestCount" {
-		t.Errorf("counter row label = %q, want RequestCount", got)
 	}
 }
 
-func TestResponseRowsReadTheResult(t *testing.T) {
-	res := sampleResult(http.StatusOK)
+// A CDN that sends no Age, Expires or Via would otherwise get three columns of
+// nothing, pushing what it does send off the side of the screen.
+func TestResponseTableOnlyColumnsWhatCameBack(t *testing.T) {
+	edges := []string{"1.1.1.1"}
+	latest := map[string]*probe.Result{"1.1.1.1": sampleResult(http.StatusPartialContent)}
 
-	values := map[string]string{}
-	for _, spec := range responseRows {
-		values[spec.label] = spec.value(res)
+	table := newResponseTable()
+	fillResponseTable(table, edges, latest, responseColumns(nil, edges, latest))
+
+	headers := map[string]bool{}
+	for column := 0; column < table.GetColumnCount(); column++ {
+		headers[table.GetCell(0, column).Text] = true
 	}
 
-	for label, want := range map[string]string{
-		"StatusCode": "200",
-		"Proto":      "HTTP/2.0",
-		"Server":     "cdn",
-		"ACA-Origin": "*",
-		"Total":      "3.2s",
-	} {
-		if values[label] != want {
-			t.Errorf("%s = %q, want %q", label, values[label], want)
+	// The sample carries these.
+	for _, want := range []string{"StatusCode", "Server", "Date", "ACA-Origin", "Hash", "Total"} {
+		if !headers[want] {
+			t.Errorf("%q carries a value but has no column: %v", want, headers)
 		}
 	}
-
-	// An absent header is blank rather than missing, so the column stays put.
-	if values["Via"] != "" {
-		t.Errorf("Via = %q, want an empty cell", values["Via"])
+	// And not these.
+	for _, absent := range []string{"Age", "Expires", "Via", "Last-Modified"} {
+		if headers[absent] {
+			t.Errorf("%q is empty everywhere but still has a column", absent)
+		}
 	}
 }
 
-func TestRecordFillsTheRowAndTheCounter(t *testing.T) {
+// A field one edge answers and another does not still earns its column, or the
+// difference between the two edges would be invisible.
+func TestResponseTableKeepsAColumnAnyEdgeFilled(t *testing.T) {
+	withAge := sampleResult(http.StatusOK)
+	withAge.Headers.Set("Age", "42")
+
+	edges := []string{"1.1.1.1", "2.2.2.2"}
+	latest := map[string]*probe.Result{
+		"1.1.1.1": sampleResult(http.StatusOK),
+		"2.2.2.2": withAge,
+	}
+
+	table := newResponseTable()
+	fillResponseTable(table, edges, latest, responseColumns(nil, edges, latest))
+
+	column := -1
+	for i := 0; i < table.GetColumnCount(); i++ {
+		if table.GetCell(0, i).Text == "Age" {
+			column = i
+		}
+	}
+	if column < 0 {
+		t.Fatal("no Age column, though one edge sent one")
+	}
+	if got := table.GetCell(1, column).Text; got != "" {
+		t.Errorf("the edge without an Age shows %q, want a blank", got)
+	}
+	if got := table.GetCell(2, column).Text; got != "42" {
+		t.Errorf("the edge with an Age shows %q, want 42", got)
+	}
+}
+
+// A 503 carries fewer headers than a 200. Recomputing the columns from only
+// the newest answers would drop Cache-Control and ETag the moment one came
+// back, and put them back on the next 200 - a table reshaping itself under the
+// eye is worse than a column of blanks.
+func TestResponseColumnsKeepWhatTheyHaveEarned(t *testing.T) {
+	edges := []string{"1.1.1.1"}
+
+	good := map[string]*probe.Result{"1.1.1.1": sampleResult(http.StatusOK)}
+	shown := responseColumns(nil, edges, good)
+
+	bare := sampleResult(http.StatusServiceUnavailable)
+	bare.Headers = http.Header{}
+	after := responseColumns(shown, edges, map[string]*probe.Result{"1.1.1.1": bare})
+
+	if len(after) != len(shown) {
+		t.Errorf("columns went from %d to %d when an error came back", len(shown), len(after))
+	}
+
+	// A header no edge has ever sent still earns nothing.
+	table := newResponseTable()
+	fillResponseTable(table, edges, good, after)
+	for column := 0; column < table.GetColumnCount(); column++ {
+		if table.GetCell(0, column).Text == "Via" {
+			t.Error("Via has a column though nothing ever sent one")
+		}
+	}
+}
+
+func TestRecordFillsTheTableAndCountsTheRequests(t *testing.T) {
 	d := testDashboard(t, []string{"1.1.1.1"})
 	d.record(0, "1.1.1.1", sampleResult(http.StatusPartialContent))
 	d.record(0, "1.1.1.1", sampleResult(http.StatusPartialContent))
 
-	if got := d.responseTable.GetCell(1, 1).Text; got != "206" {
+	column := -1
+	for i := 0; i < d.responseTable.GetColumnCount(); i++ {
+		if d.responseTable.GetCell(0, i).Text == "StatusCode" {
+			column = i
+		}
+	}
+	if column < 0 {
+		t.Fatal("no StatusCode column")
+	}
+	if got := d.responseTable.GetCell(1, column).Text; got != "206" {
 		t.Errorf("StatusCode cell = %q, want 206", got)
 	}
-	if got := d.responseTable.GetCell(requestCountRow(), 1).Text; got != "2" {
-		t.Errorf("RequestCount cell = %q, want 2", got)
+
+	// The counter moved to the title: as a column it would repeat one number
+	// down every row.
+	if got := d.responseTable.GetTitle(); !strings.Contains(got, "2 requests") {
+		t.Errorf("title = %q, want it to carry the request count", got)
 	}
 }
 

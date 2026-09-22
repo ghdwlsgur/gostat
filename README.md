@@ -136,16 +136,21 @@ $ gostat request https://www.naver.com/asset.js -t naver.com -r http://naver.com
 different questions.
 
 **Status per edge** gives every edge a row of blocks, one per request, coloured
-by status class, with the code it answered with last. One edge going bad shows
-as a band of a different colour against the rest — no reading required. The
-legend names only the classes that have actually come back, so it growing from
-`2xx` to `2xx 5xx` is itself the signal.
+by status class, with the code it answered with last. The row fills from the
+left and starts over when it reaches the right, so only the newest block moves
+and a change of colour is easy to catch. One edge going bad shows as a band of
+a different colour against the rest — no reading required. The legend names
+only the classes that have actually come back, so it growing from `2xx` to
+`2xx 5xx` is itself the signal.
 
 **Latency** takes the last request apart phase by phase, each bar as wide as the
 share of the request that phase took. A request that spends 21ms of its 22ms
 waiting on the server says so at a glance.
 
-**Response** is what the newest answer from each edge contained, side by side.
+**Response** is a row per edge and a column per header, so two edges can be
+compared line by line. A header only gets a column once some edge has actually
+sent it, and keeps it afterwards — a CDN that never sends `Age` or `Via` does
+not spend two columns saying so.
 **Changes** keeps the distinct status codes and body digests the run has turned
 up, and when the status last changed.
 
