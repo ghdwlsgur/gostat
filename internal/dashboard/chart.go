@@ -126,7 +126,14 @@ func (c *statusChart) drawRow(screen tcell.Screen, x, y int, edge string, label,
 		screen.SetContent(x+label+i, y, barRune, nil, tcell.StyleDefault.Foreground(statusColor(code)))
 	}
 
-	if latest := c.latest(edge); latest != 0 {
+	switch latest := c.latest(edge); latest {
+	case failedStatus:
+		// Nothing to show when the edge has not answered yet either; the
+		// strip is empty then too.
+		if len(c.samples[edge]) > 0 {
+			tview.Print(screen, "----", x+label+strip, y, codeWidth, tview.AlignRight, statusColor(failedStatus))
+		}
+	default:
 		tview.Print(screen, strconv.Itoa(latest), x+label+strip, y, codeWidth, tview.AlignRight, statusColor(latest))
 	}
 }
@@ -136,7 +143,12 @@ func (c *statusChart) drawRow(screen tcell.Screen, x, y int, edge string, label,
 func (c *statusChart) drawLegend(screen tcell.Screen, x, y, width int) {
 	at := x
 	for _, class := range c.classesSeen() {
-		at = legendEntry(screen, at, y, x+width, statusColor(class*100), strconv.Itoa(class)+"xx")
+		label := strconv.Itoa(class) + "xx"
+		if class == failedStatus {
+			label = "failed"
+		}
+
+		at = legendEntry(screen, at, y, x+width, statusColor(class*100), label)
 		if at < 0 {
 			return
 		}

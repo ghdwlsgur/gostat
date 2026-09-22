@@ -1,6 +1,9 @@
 package report
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestShortenHeaderName(t *testing.T) {
 	tests := []struct {
@@ -82,5 +85,15 @@ func TestSeoulTime(t *testing.T) {
 				t.Errorf("SeoulTime(%q) = %q, want %q", tt.date, got, tt.want)
 			}
 		})
+	}
+}
+
+// A request that got no response carries no Date header, and "last " with
+// nothing after it is worse than no timestamp at all.
+func TestNowIsShapedLikeSeoulTime(t *testing.T) {
+	now := Now()
+
+	if _, err := time.Parse("2006-01-02 15:04:05", now); err != nil {
+		t.Errorf("Now() = %q, which SeoulTime's own format cannot parse: %v", now, err)
 	}
 }

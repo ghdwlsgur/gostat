@@ -31,6 +31,7 @@ type Dashboard struct {
 	// latest is each edge's most recent answer, which the response table is
 	// rebuilt from, and columns is which fields have earned a place in it.
 	latest  map[string]*probe.Result
+	failed  map[string]error
 	columns []int
 
 	chart         *statusChart
@@ -77,6 +78,7 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 		url:           u,
 		edges:         edges,
 		latest:        make(map[string]*probe.Result, len(edges)),
+		failed:        make(map[string]error, len(edges)),
 		chart:         newStatusChart(edges),
 		responseTable: newResponseTable(),
 		latency:       newLatencyPanel(),
@@ -104,14 +106,20 @@ func (d *Dashboard) probeLoop(ctx context.Context) error {
 			}
 
 			res, err := d.client.Do(ctx, d.url, edge)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return err
+			if ctx.Err() != nil {
+				return nil
 			}
 
-			d.app.QueueUpdateDraw(func() { d.record(i, edge, res) })
+			// An edge that stops answering is the thing this view exists to
+			// show. Ending the run on it would close the window at the moment
+			// it became worth watching, and take the other edges with it.
+			d.app.QueueUpdateDraw(func() {
+				if err != nil {
+					d.recordFailure(i, edge, err)
+					return
+				}
+				d.record(i, edge, res)
+			})
 
 			select {
 			case <-time.After(sweepInterval):
@@ -122,20 +130,35 @@ func (d *Dashboard) probeLoop(ctx context.Context) error {
 	}
 }
 
+// recordFailure notes that an edge did not answer. The response table keeps
+// the last thing it did say, so what changed stays visible beside the failure.
+func (d *Dashboard) recordFailure(index int, edge string, err error) {
+	d.requests++
+	d.failed[edge] = err
+
+	d.chart.record(edge, failedStatus)
+	d.refreshResponse()
+	d.changes.recordFailure(edge, report.Now())
+}
+
 // record folds one result into the widgets.
 func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 	d.requests++
 	d.latest[edge] = res
+	delete(d.failed, edge)
 
 	d.chart.record(edge, res.StatusCode)
 
+	d.refreshResponse()
+	d.latency.set(res.Trace)
+	d.changes.record(edge, res.StatusCode, shortHash(res.BodySum), report.SeoulTime(res.Header("Date")))
+}
+
+func (d *Dashboard) refreshResponse() {
 	d.columns = responseColumns(d.columns, d.edges, d.latest)
-	fillResponseTable(d.responseTable, d.edges, d.latest, d.columns)
+	fillResponseTable(d.responseTable, d.edges, d.latest, d.failed, d.columns)
 	// The counter belongs in the title now that the table has a row per edge
 	// rather than a column: as a column it would repeat one number down every
 	// row.
 	d.responseTable.SetTitle(fmt.Sprintf(" Response · %d requests ", d.requests))
-
-	d.latency.set(res.Trace)
-	d.changes.record(res.StatusCode, shortHash(res.BodySum), report.SeoulTime(res.Header("Date")))
 }

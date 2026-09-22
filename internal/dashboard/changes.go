@@ -19,35 +19,99 @@ import (
 type changesPanel struct {
 	*tview.TextView
 
-	codes  seen
-	status tracked
-	body   tracked
+	codes seen
+	// Per edge, because two edges can each be perfectly steady while serving
+	// different bodies. Folded into one tracker they looked like a single
+	// field flipping on every request, and the count climbed forever.
+	status map[string]*tracked
+	body   map[string]*tracked
 }
 
 func newChangesPanel() *changesPanel {
-	p := &changesPanel{TextView: tview.NewTextView().SetDynamicColors(true)}
+	p := &changesPanel{
+		TextView: tview.NewTextView().SetDynamicColors(true),
+		status:   map[string]*tracked{},
+		body:     map[string]*tracked{},
+	}
 	p.SetBorder(true).SetTitle(" Changes ")
 	p.sync()
 
 	return p
 }
 
+func (p *changesPanel) trackerFor(m map[string]*tracked, edge string) *tracked {
+	if t, ok := m[edge]; ok {
+		return t
+	}
+
+	t := &tracked{}
+	m[edge] = t
+
+	return t
+}
+
 // record folds one answer in. at is when it arrived, used only when something
 // actually moved.
-func (p *changesPanel) record(statusCode int, body, at string) {
+func (p *changesPanel) record(edge string, statusCode int, body, at string) {
 	code := strconv.Itoa(statusCode)
 
 	p.codes.add(code)
-	p.status.record(code, at)
-	p.body.record(body, at)
+	p.trackerFor(p.status, edge).record(code, at)
+	p.trackerFor(p.body, edge).record(body, at)
 
 	p.sync()
 }
 
+// recordFailure notes that an edge stopped answering. That is a change like
+// any other, and the panel is where a change belongs.
+//
+// at is the clock here rather than a Date header, because a request that got
+// no response carries none - and "last " with nothing after it is worse than
+// no timestamp at all.
+func (p *changesPanel) recordFailure(edge, at string) {
+	p.codes.add(failedLabel)
+	p.trackerFor(p.status, edge).record(failedLabel, at)
+	p.sync()
+}
+
+// digest describes what the edges are saying now: the shared value when they
+// agree, and how many differ when they do not.
+func (p *changesPanel) digest(m map[string]*tracked) string {
+	var values seen
+	for _, t := range m {
+		if t.current != "" {
+			values.add(t.current)
+		}
+	}
+
+	switch list := values.list(); len(list) {
+	case 0:
+		return ""
+	case 1:
+		return list[0]
+	default:
+		return fmt.Sprintf("%d edges differ", len(list))
+	}
+}
+
+// moves totals the changes across edges, which is what "has this been stable"
+// means once there is more than one of them.
+func moves(m map[string]*tracked) tracked {
+	var total tracked
+	for _, t := range m {
+		total.changes += t.changes
+		if t.at > total.at {
+			total.at = t.at
+		}
+	}
+
+	return total
+}
+
 func (p *changesPanel) sync() {
 	p.SetText(strings.Join([]string{
-		row("Status", colored(p.codes.list(), statusTag), p.status),
-		row("Body", colored([]string{p.body.current}, func(string) string { return "white" }), p.body),
+		row("Status", colored(p.codes.list(), statusTag), moves(p.status)),
+		row("Body", colored([]string{p.digest(p.body)}, func(string) string { return "white" }), moves(p.body)),
 	}, "\n"))
 }
 
@@ -117,11 +181,18 @@ func (t tracked) summary() string {
 	return fmt.Sprintf("  [gray]· changed %d×, last %s", t.changes, when)
 }
 
+// failedLabel stands in for an edge that did not answer, where a status code
+// would otherwise go.
+const failedLabel = "failed"
+
 // statusTag is the tview colour tag matching statusColor, so the panel and the
 // chart agree on what a status class looks like.
 func statusTag(code string) string {
 	n, err := strconv.Atoi(code)
 	if err != nil {
+		if code == failedLabel {
+			return "gray"
+		}
 		return "white"
 	}
 

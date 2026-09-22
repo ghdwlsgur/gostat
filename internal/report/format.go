@@ -60,6 +60,17 @@ func shortenHeaderName(name string) string {
 	return shortened
 }
 
+// Now is the local clock in the same shape SeoulTime renders a header in, for
+// the moments there is no header to read - a request that got no response.
+func Now() string {
+	seoul, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return time.Now().Format("2006-01-02 15:04:05")
+	}
+
+	return time.Now().In(seoul).Format("2006-01-02 15:04:05")
+}
+
 // SeoulTime reformats an HTTP date header in Asia/Seoul, or explains why it
 // could not. A response with no usable Date is not an error worth aborting on.
 func SeoulTime(httpDate string) string {

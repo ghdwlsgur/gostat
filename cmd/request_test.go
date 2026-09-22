@@ -179,3 +179,32 @@ func TestAttackModeStopsWhenCancelled(t *testing.T) {
 		t.Errorf("attack mode sent a Range header on %d requests", got)
 	}
 }
+
+// A dead edge is not a clean exit. Attack mode cancels its own context on the
+// first failure, so asking that context whether the run was cancelled answered
+// yes every time, and the error was dropped on the floor.
+func TestAttackModeReportsAFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	edge, port := edgeFlags(t, srv.URL)
+	srv.Close() // nothing is listening
+
+	out, err := run(t, context.Background(), "request", "http://example.com/", "-t", edge, "-p", port, "-a")
+	if err == nil {
+		t.Fatalf("attack mode against a closed server exited cleanly\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "connect") && !strings.Contains(err.Error(), "refused") {
+		t.Errorf("error = %q, want it to name the connection failure", err)
+	}
+}
+
+// And a single sweep fails the same way, which already worked; this keeps the
+// two paths honest about each other.
+func TestASweepReportsAFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	edge, port := edgeFlags(t, srv.URL)
+	srv.Close()
+
+	if _, err := run(t, context.Background(), "request", "http://example.com/", "-t", edge, "-p", port); err == nil {
+		t.Error("a sweep against a closed server exited cleanly")
+	}
+}

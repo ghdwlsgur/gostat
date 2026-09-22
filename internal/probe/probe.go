@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -105,13 +106,28 @@ func ParseURL(arg string) (*url.URL, error) {
 	return u, nil
 }
 
+// portFor decides where to connect: the option wins, then the port the URL
+// names, then the scheme default. Skipping the middle one meant
+// http://host:8080/ was dialled on 80 - the URL said where to go and the tool
+// went somewhere else.
+func portFor(u *url.URL, option int) int {
+	if option > 0 {
+		return option
+	}
+
+	if named := u.Port(); named != "" {
+		if port, err := strconv.Atoi(named); err == nil && port > 0 {
+			return port
+		}
+	}
+
+	return DefaultPort(u.Scheme)
+}
+
 // Do sends one GET for u, dialling edge instead of resolving u.Host. Passing
 // an empty edge lets DNS decide, which is what happens with no -t.
 func (c *Client) Do(ctx context.Context, u *url.URL, edge string) (*Result, error) {
-	port := c.opts.Port
-	if port == 0 {
-		port = DefaultPort(u.Scheme)
-	}
+	port := portFor(u, c.opts.Port)
 
 	timeout := c.opts.Timeout
 	if timeout <= 0 {

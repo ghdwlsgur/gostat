@@ -1,9 +1,13 @@
 package dashboard
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +41,23 @@ func sampleResult(status int) *probe.Result {
 			TLS:              true,
 		},
 	}
+}
+
+// edgeOf splits an httptest URL into the address and port to pin to.
+func edgeOf(t *testing.T, rawURL string) (string, int) {
+	t.Helper()
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", rawURL, err)
+	}
+
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("parsing the port of %q: %v", rawURL, err)
+	}
+
+	return u.Hostname(), port
 }
 
 func testDashboard(t *testing.T, edges []string) *Dashboard {
@@ -201,7 +222,7 @@ func TestResponseTableIsOneRowPerEdge(t *testing.T) {
 		"1.1.1.1": sampleResult(http.StatusPartialContent),
 		"2.2.2.2": sampleResult(http.StatusServiceUnavailable),
 	}
-	fillResponseTable(table, edges, latest, responseColumns(nil, edges, latest))
+	fillResponseTable(table, edges, latest, nil, responseColumns(nil, edges, latest))
 
 	if got := table.GetRowCount(); got != len(edges)+1 {
 		t.Fatalf("table has %d rows, want a header plus %d edges", got, len(edges))
@@ -223,7 +244,7 @@ func TestResponseTableOnlyColumnsWhatCameBack(t *testing.T) {
 	latest := map[string]*probe.Result{"1.1.1.1": sampleResult(http.StatusPartialContent)}
 
 	table := newResponseTable()
-	fillResponseTable(table, edges, latest, responseColumns(nil, edges, latest))
+	fillResponseTable(table, edges, latest, nil, responseColumns(nil, edges, latest))
 
 	headers := map[string]bool{}
 	for column := 0; column < table.GetColumnCount(); column++ {
@@ -257,7 +278,7 @@ func TestResponseTableKeepsAColumnAnyEdgeFilled(t *testing.T) {
 	}
 
 	table := newResponseTable()
-	fillResponseTable(table, edges, latest, responseColumns(nil, edges, latest))
+	fillResponseTable(table, edges, latest, nil, responseColumns(nil, edges, latest))
 
 	column := -1
 	for i := 0; i < table.GetColumnCount(); i++ {
@@ -296,7 +317,7 @@ func TestResponseColumnsKeepWhatTheyHaveEarned(t *testing.T) {
 
 	// A header no edge has ever sent still earns nothing.
 	table := newResponseTable()
-	fillResponseTable(table, edges, good, after)
+	fillResponseTable(table, edges, good, nil, after)
 	for column := 0; column < table.GetColumnCount(); column++ {
 		if table.GetCell(0, column).Text == "Via" {
 			t.Error("Via has a column though nothing ever sent one")
@@ -394,7 +415,7 @@ func TestLeftArrowStopsAtTheStart(t *testing.T) {
 	table := newResponseTable()
 	fillResponseTable(table, []string{"1.1.1.1"}, map[string]*probe.Result{
 		"1.1.1.1": sampleResult(http.StatusOK),
-	}, []int{0, 1, 2})
+	}, nil, []int{0, 1, 2})
 
 	capture := table.GetInputCapture()
 	left := tcell.NewEventKey(tcell.KeyLeft, 0, tcell.ModNone)
@@ -493,6 +514,111 @@ func TestEveryPanelKeepsItsRowsOnAShortTerminal(t *testing.T) {
 			if !strings.Contains(out, want) {
 				t.Errorf("%d rows lose %q:\n%s", height, want, out)
 			}
+		}
+	}
+}
+
+// An edge that stops answering is the thing this view exists to show. Ending
+// the run on it would close the window at the moment it became worth
+// watching, and take the other edges with it.
+func TestAFailingEdgeDoesNotEndTheRun(t *testing.T) {
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer live.Close()
+
+	_, port := edgeOf(t, live.URL)
+
+	// The port comes from the URL, so the edges have to differ by address.
+	// httptest binds 127.0.0.1, which leaves 127.0.0.2 refusing on the same
+	// port - one edge up, one edge down, nothing else different.
+	u, err := url.Parse("http://example.com:" + strconv.Itoa(port) + "/")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+
+	d := newDashboard(probe.New(probe.Options{Timeout: 2 * time.Second}), u, []string{"127.0.0.1", "127.0.0.2"})
+	screen := tcell.NewSimulationScreen("UTF-8")
+	d.app.SetScreen(screen)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- d.app.Run() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	loop := make(chan error, 1)
+	go func() { loop <- d.probeLoop(ctx) }()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var answered, failed bool
+		settle(d.app, func() {
+			answered = len(d.latest) > 0
+			failed = len(d.failed) > 0
+		})
+		if answered && failed {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-loop
+			d.app.Stop()
+			<-stopped
+			t.Fatal("the loop never recorded both a success and a failure")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	cancel()
+	if err := <-loop; err != nil {
+		t.Errorf("probeLoop returned %v; a dead edge must not end the run", err)
+	}
+
+	d.app.Stop()
+	<-stopped
+}
+
+// The edge that went away keeps the last thing it said, greyed, with the
+// failure in its status cell - throwing the row away would lose the
+// comparison that made the failure worth looking at.
+func TestAFailedEdgeKeepsItsLastAnswer(t *testing.T) {
+	edges := []string{"1.1.1.1"}
+	latest := map[string]*probe.Result{"1.1.1.1": sampleResult(http.StatusOK)}
+	shown := responseColumns(nil, edges, latest)
+
+	table := newResponseTable()
+	fillResponseTable(table, edges, latest, map[string]error{
+		"1.1.1.1": errors.New("dial tcp: connection refused"),
+	}, shown)
+
+	var status, server string
+	for column := 0; column < table.GetColumnCount(); column++ {
+		switch table.GetCell(0, column).Text {
+		case "StatusCode":
+			status = table.GetCell(1, column).Text
+		case "Server":
+			server = table.GetCell(1, column).Text
+		}
+	}
+
+	if status != "refused" {
+		t.Errorf("StatusCode cell = %q, want the failure", status)
+	}
+	if server != "cdn" {
+		t.Errorf("Server cell = %q, want the last answer kept", server)
+	}
+}
+
+func TestFailureText(t *testing.T) {
+	tests := map[string]error{
+		"timeout": context.DeadlineExceeded,
+		"refused": errors.New("dial tcp 1.2.3.4:80: connect: connection refused"),
+		"no host": errors.New("lookup nope: no such host"),
+		"failed":  errors.New("something else entirely"),
+	}
+
+	for want, err := range tests {
+		if got := failureText(err); got != want {
+			t.Errorf("failureText(%v) = %q, want %q", err, got, want)
 		}
 	}
 }

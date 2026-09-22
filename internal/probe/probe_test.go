@@ -319,3 +319,53 @@ func TestDoWithoutAnEdgeFallsBackToDNS(t *testing.T) {
 		t.Errorf("Do: %v", err)
 	}
 }
+
+// The URL says where to go. Ignoring the port it names meant
+// http://host:8080/ was dialled on 80, and the error even said so.
+func TestPortFor(t *testing.T) {
+	tests := []struct {
+		name   string
+		url    string
+		option int
+		want   int
+	}{
+		{"the option wins", "http://example.com:8080/", 9000, 9000},
+		{"then the port the url names", "http://example.com:8080/", 0, 8080},
+		{"then the scheme default", "http://example.com/", 0, 80},
+		{"https defaults to 443", "https://example.com/", 0, 443},
+		{"an https url may still name a port", "https://example.com:8443/", 0, 8443},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, err := ParseURL(tt.url)
+			if err != nil {
+				t.Fatalf("ParseURL: %v", err)
+			}
+			if got := portFor(u, tt.option); got != tt.want {
+				t.Errorf("portFor(%q, %d) = %d, want %d", tt.url, tt.option, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDoUsesThePortInTheURL(t *testing.T) {
+	rec := &recorder{}
+	srv := httptest.NewServer(rec.handler(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	edge, port := edgeOf(t, srv.URL)
+
+	// No Port option: the one in the URL is the only thing saying where to go.
+	u, err := ParseURL("http://example.com:" + strconv.Itoa(port) + "/asset.txt")
+	if err != nil {
+		t.Fatalf("ParseURL: %v", err)
+	}
+
+	if _, err := New(Options{}).Do(context.Background(), u, edge); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if rec.count() != 1 {
+		t.Errorf("the server received %d requests, want 1", rec.count())
+	}
+}
