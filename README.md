@@ -151,8 +151,10 @@ waiting on the server says so at a glance.
 compared line by line. A header only gets a column once some edge has actually
 sent it, and keeps it afterwards — a CDN that never sends `Age` or `Via` does
 not spend two columns saying so.
-**Changes** keeps the distinct status codes and body digests the run has turned
-up, and when the status last changed.
+**Changes** says whether the answer has been stable: every status code that has
+come back, the digest of the body right now, and how often each has moved. An
+origin that stamps a request id into its output changes its digest on every
+request, so that row counts the changes rather than listing them.
 
 Press `q` or `ctrl-c` to leave. The view lays itself out to the terminal it is
 in: a wide window shows a longer run of history, and a narrow one falls back to
