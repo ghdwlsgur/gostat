@@ -8,17 +8,20 @@ import (
 	"github.com/rivo/tview"
 )
 
-// changesPanel keeps the distinct values the run has turned up: which status
-// codes came back, which bodies, and when the status last changed.
+// changesPanel answers whether the answer has been stable: what the edges say
+// now, how often that has moved, and when it last did.
 //
-// Three values in one frame, rather than three frames holding one short token
-// each - which is what the same information used to cost.
+// Status codes are a small enumeration, so every one that has come back is
+// worth listing. Body digests are not - an origin that puts a timestamp in its
+// output produces a new one on every request - so that row shows the current
+// digest and counts the rest. Listing those would grow without limit and push
+// the useful part off the side.
 type changesPanel struct {
 	*tview.TextView
 
-	status seen
-	body   seen
-	since  seen
+	codes  seen
+	status tracked
+	body   tracked
 }
 
 func newChangesPanel() *changesPanel {
@@ -29,42 +32,89 @@ func newChangesPanel() *changesPanel {
 	return p
 }
 
-// record folds one result in. The timestamp is only worth keeping when the
-// status changed: the same code repeating is not an event.
+// record folds one answer in. at is when it arrived, used only when something
+// actually moved.
 func (p *changesPanel) record(statusCode int, body, at string) {
-	if p.status.add(strconv.Itoa(statusCode)) {
-		p.since.add(at)
-	}
-	p.body.add(body)
+	code := strconv.Itoa(statusCode)
+
+	p.codes.add(code)
+	p.status.record(code, at)
+	p.body.record(body, at)
 
 	p.sync()
 }
 
 func (p *changesPanel) sync() {
 	p.SetText(strings.Join([]string{
-		line("Status", colored(p.status.list(), statusTag)),
-		line("Body", colored(p.body.list(), func(string) string { return "white" })),
-		line("Since", colored(p.since.list(), func(string) string { return "gray" })),
+		row("Status", colored(p.codes.list(), statusTag), p.status),
+		row("Body", colored([]string{p.body.current}, func(string) string { return "white" }), p.body),
 	}, "\n"))
 }
 
-func line(label, values string) string {
+// row lays out one field: what it says, then how restless it has been.
+func row(label, values string, t tracked) string {
 	if values == "" {
-		values = "[gray]waiting"
+		return fmt.Sprintf("[white]%-7s[gray]waiting", label)
 	}
 
-	return fmt.Sprintf("[white]%-7s%s", label, values)
+	return fmt.Sprintf("[white]%-7s%s%s", label, values, t.summary())
 }
 
-// colored tags each value with the colour tag chosen for it, so a 503 among
-// the codes is visible without reading the number.
+// colored tags each value with the colour chosen for it, so a 503 among the
+// codes is visible without reading the number.
 func colored(values []string, tag func(string) string) string {
-	painted := make([]string, len(values))
-	for i, value := range values {
-		painted[i] = fmt.Sprintf("[%s]%s", tag(value), tview.Escape(value))
+	painted := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		painted = append(painted, fmt.Sprintf("[%s]%s", tag(value), tview.Escape(value)))
 	}
 
 	return strings.Join(painted, "  ")
+}
+
+// tracked follows one field across a run: what it says now, how often that has
+// moved, and when it last did. It keeps one value rather than every value, so
+// a field that changes on every request costs the same room as one that never
+// changes.
+type tracked struct {
+	current string
+	changes int
+	at      string
+}
+
+// record notes a value and reports whether it differs from the last one. The
+// first value is not a change: there was nothing for it to differ from.
+func (t *tracked) record(value, at string) bool {
+	if t.current == value {
+		return false
+	}
+
+	if t.current != "" {
+		t.changes++
+		t.at = at
+	}
+	t.current = value
+
+	return true
+}
+
+// summary is what follows the value: nothing while it has held still, and how
+// restless it has been once it has not.
+func (t tracked) summary() string {
+	if t.changes == 0 {
+		return ""
+	}
+
+	when := t.at
+	// The date is in the response table; here the time of day is enough, and
+	// it leaves room for the digest.
+	if _, clock, found := strings.Cut(when, " "); found {
+		when = clock
+	}
+
+	return fmt.Sprintf("  [gray]· changed %d×, last %s", t.changes, when)
 }
 
 // statusTag is the tview colour tag matching statusColor, so the panel and the
