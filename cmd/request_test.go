@@ -1,210 +1,181 @@
 package cmd
 
 import (
-	"reflect"
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
-
-	"github.com/ghdwlsgur/gostat/internal"
-	ui "github.com/gizak/termui/v3"
+	"time"
 )
 
-func TestParseURL(t *testing.T) {
+// run executes the command tree with args and returns everything it wrote.
+func run(t *testing.T, ctx context.Context, args ...string) (string, error) {
+	t.Helper()
+
+	var out bytes.Buffer
+	root := NewRootCommand("test")
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+
+	err := root.ExecuteContext(ctx)
+
+	return out.String(), err
+}
+
+// edgeFlags turns an httptest URL into the -t and -p a test needs.
+func edgeFlags(t *testing.T, rawURL string) (string, string) {
+	t.Helper()
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", rawURL, err)
+	}
+	if _, err := strconv.Atoi(u.Port()); err != nil {
+		t.Fatalf("parsing the port of %q: %v", rawURL, err)
+	}
+
+	return u.Hostname(), u.Port()
+}
+
+func TestRequestReportsWhatTheEdgeAnswered(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "edge.example.com" {
+			t.Errorf("server saw Host %q, want the -H override", r.Host)
+		}
+		w.Header().Set("Server", "test-origin")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	edge, port := edgeFlags(t, srv.URL)
+	out, err := run(t, context.Background(),
+		"request", "http://example.com/asset.txt",
+		"-t", edge, "-p", port, "-H", "edge.example.com")
+	if err != nil {
+		t.Fatalf("request: %v\n%s", err, out)
+	}
+
+	for _, want := range []string{"206 Partial Content", "test-origin", "Latency Status", "Total", edge} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRequestProbesEveryEdge(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+	}))
+	defer srv.Close()
+
+	// 127.0.0.1 resolves to exactly one address, so one sweep is one request.
+	edge, port := edgeFlags(t, srv.URL)
+	if _, err := run(t, context.Background(), "request", "http://example.com/", "-t", edge, "-p", port); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+
+	if got := hits.Load(); got != 1 {
+		t.Errorf("the edge was hit %d times, want once per sweep", got)
+	}
+}
+
+func TestRequestRejectsBadArguments(t *testing.T) {
 	tests := []struct {
-		name         string
-		arg          string
-		wantProtocol string
-		wantRest     string
-		wantErr      bool
+		name string
+		args []string
+		want string
 	}{
 		{
-			name:         "https url",
-			arg:          "https://www.naver.com/index.html",
-			wantProtocol: "https",
-			wantRest:     "www.naver.com/index.html",
+			// This used to reach splitData[1] and panic.
+			name: "a bare domain",
+			args: []string{"request", "www.naver.com"},
+			want: `missing "://"`,
 		},
 		{
-			name:         "http url",
-			arg:          "http://example.com",
-			wantProtocol: "http",
-			wantRest:     "example.com",
+			name: "an unsupported protocol",
+			args: []string{"request", "ftp://example.com"},
+			want: "unsupported protocol",
 		},
 		{
-			// This used to slip past the check and then panic on splitData[1].
-			name:    "a bare domain is rejected, not panicked on",
-			arg:     "www.naver.com",
-			wantErr: true,
+			name: "no argument",
+			args: []string{"request"},
+			want: "accepts 1 arg",
 		},
 		{
-			name:    "other protocols are rejected",
-			arg:     "ftp://example.com",
-			wantErr: true,
-		},
-		{
-			name:    "a protocol with no host is rejected",
-			arg:     "https://",
-			wantErr: true,
-		},
-		{
-			name:    "a path with no host is rejected",
-			arg:     "https:///index.html",
-			wantErr: true,
-		},
-		{
-			name:    "an empty argument is rejected",
-			arg:     "",
-			wantErr: true,
+			name: "more than one argument",
+			args: []string{"request", "http://a.com", "http://b.com"},
+			want: "accepts 1 arg",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			protocol, rest, err := parseURL(tt.arg)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("parseURL(%q) = (%q, %q, nil), want an error", tt.arg, protocol, rest)
-				}
-				return
+			_, err := run(t, context.Background(), tt.args...)
+			if err == nil {
+				t.Fatalf("%v returned a nil error", tt.args)
 			}
-
-			if err != nil {
-				t.Fatalf("parseURL(%q): %v", tt.arg, err)
-			}
-			if protocol != tt.wantProtocol {
-				t.Errorf("protocol = %q, want %q", protocol, tt.wantProtocol)
-			}
-			if rest != tt.wantRest {
-				t.Errorf("rest = %q, want %q", rest, tt.wantRest)
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, want it to mention %q", err, tt.want)
 			}
 		})
 	}
 }
 
-func TestResolvePort(t *testing.T) {
-	tests := []struct {
-		name     string
-		protocol string
-		flagPort int
-		want     int
-	}{
-		{"http falls back to 80", "http", 0, internal.DefaultHTTPPort},
-		{"https falls back to 443", "https", 0, internal.DefaultHTTPSPort},
-		{"an explicit port wins over http", "http", 8080, 8080},
-		{"an explicit port wins over https", "https", 8443, 8443},
-	}
+// Ctrl-c cancels the context; that is a clean stop, not a failure to report.
+func TestRequestTreatsCancellationAsACleanStop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := resolvePort(tt.protocol, tt.flagPort); got != tt.want {
-				t.Errorf("resolvePort(%q, %d) = %d, want %d", tt.protocol, tt.flagPort, got, tt.want)
-			}
-		})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	edge, port := edgeFlags(t, srv.URL)
+	if _, err := run(t, ctx, "request", "http://example.com/", "-t", edge, "-p", port); err != nil {
+		t.Errorf("a cancelled run reported %v, want a clean stop", err)
 	}
 }
 
-func TestUniqueBox(t *testing.T) {
-	box := &uniqueBox{}
-
-	box.Add("200")
-	box.Add("200")
-	box.Add("404")
-
-	if box.Length() != 2 {
-		t.Errorf("Length() = %d, want 2 after adding a duplicate", box.Length())
-	}
-	if !box.Contain("404") {
-		t.Error(`Contain("404") = false`)
-	}
-	if box.Contain("500") {
-		t.Error(`Contain("500") = true`)
-	}
-
-	box.Remove("200")
-	if box.Contain("200") {
-		t.Error(`Remove("200") left the value behind`)
-	}
-	if box.Length() != 1 {
-		t.Errorf("Length() = %d, want 1 after a removal", box.Length())
-	}
-
-	box.Remove("nothing-like-this")
-	if box.Length() != 1 {
-		t.Errorf("removing an absent value changed Length() to %d", box.Length())
-	}
-}
-
-func TestUniqueBoxGetReturnsACopy(t *testing.T) {
-	box := &uniqueBox{}
-	box.Add("200")
-
-	got := box.Get()
-	got[0] = "tampered"
-
-	if box.Get()[0] != "200" {
-		t.Error("Get() handed out the backing array; the history table can corrupt the box")
-	}
-}
-
-func TestDynamicStatusCodeColor(t *testing.T) {
-	tests := []struct {
-		statusCode int
-		want       []ui.Color
-	}{
-		{200, []ui.Color{2}},
-		{301, []ui.Color{4}},
-		{404, []ui.Color{3}},
-		{503, []ui.Color{1}},
-	}
-
-	for _, tt := range tests {
-		if got := dynamicStatusCodeColor(tt.statusCode, nil); !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("dynamicStatusCodeColor(%d) = %v, want %v", tt.statusCode, got, tt.want)
+func TestAttackModeStopsWhenCancelled(t *testing.T) {
+	// The handler runs on a goroutine per request, so the counters are atomic.
+	var hits, ranged atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "" {
+			ranged.Add(1)
 		}
+		hits.Add(1)
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	edge, port := edgeFlags(t, srv.URL)
+	out, err := run(t, ctx, "request", "http://example.com/", "-t", edge, "-p", port, "-a", "-n", "2")
+	if err != nil {
+		t.Fatalf("attack: %v\n%s", err, out)
 	}
 
-	// An unclassified code leaves the previous colour in place.
-	previous := []ui.Color{7}
-	if got := dynamicStatusCodeColor(100, previous); !reflect.DeepEqual(got, previous) {
-		t.Errorf("dynamicStatusCodeColor(100) = %v, want the colour untouched %v", got, previous)
+	if hits.Load() == 0 {
+		t.Error("attack mode sent no request")
 	}
-}
-
-// A CDN domain routinely answers with more than nine A records; the chart used
-// to be sized to a fixed nine and indexed by edge, so the tenth edge panicked.
-func TestCreateEdgeChartHasOneSlotPerEdge(t *testing.T) {
-	ips := make([]string, 12)
-	for i := range ips {
-		ips[i] = "10.0.0." + string(rune('a'+i))
+	if !strings.Contains(out, "Request Count") {
+		t.Errorf("attack mode printed no progress:\n%s", out)
 	}
-
-	charts := createEdgeChart("example.com", ips)
-	if len(charts) != len(ips) {
-		t.Fatalf("got %d charts, want %d", len(charts), len(ips))
-	}
-
-	for ip, chart := range charts {
-		if len(chart.Data) != len(ips) {
-			t.Fatalf("chart for %s has %d data slots, want %d", ip, len(chart.Data), len(ips))
-		}
-	}
-}
-
-func TestCreateResponseTableHasAColumnPerEdge(t *testing.T) {
-	ips := []string{"1.1.1.1", "2.2.2.2"}
-	table := createResponseTable(ips)
-
-	if len(table.Rows) != 15 {
-		t.Fatalf("got %d rows, want 15", len(table.Rows))
-	}
-
-	wantHeader := []string{"IP", "1.1.1.1", "2.2.2.2"}
-	if !reflect.DeepEqual(table.Rows[0], wantHeader) {
-		t.Errorf("header = %v, want %v", table.Rows[0], wantHeader)
-	}
-
-	for i, row := range table.Rows {
-		if len(row) != len(ips)+1 {
-			t.Errorf("row %d has %d cells, want %d", i, len(row), len(ips)+1)
-		}
+	// Attack mode is about load, so it asks for the object rather than two bytes.
+	if got := ranged.Load(); got != 0 {
+		t.Errorf("attack mode sent a Range header on %d requests", got)
 	}
 }

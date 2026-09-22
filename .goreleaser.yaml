@@ -47,7 +47,7 @@ release:
 brews:
   - name: gostat
     homepage: "https://github.com/ghdwlsgur/gostat"
-    description: "An interactive cli tool that easily binds HTTPS certificates and diagnoses whether certificates are applied with edge servers as proxy."
+    description: "HTTP GET to a domain's A records - or a pinned edge IP - with response headers and per-stage latency. A shorter curl --resolve."
     tap:
       owner: ghdwlsgur
       name: homebrew-gostat
