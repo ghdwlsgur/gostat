@@ -67,6 +67,49 @@ func TestStatusChartColorsEachEdgeByClass(t *testing.T) {
 	}
 }
 
+// The strip fills from the left and starts over when it reaches the right, so
+// a long run reads as a sequence of passes. Only the newest block moves, which
+// is what makes a colour change easy to catch.
+func TestStatusChartFillsFromTheLeftAndRestarts(t *testing.T) {
+	c := newStatusChart([]string{"1.1.1.1"})
+
+	const strip = 10
+	for i := 1; i <= strip; i++ {
+		c.record("1.1.1.1", http.StatusOK)
+		if got := len(c.pass("1.1.1.1", strip)); got != i {
+			t.Fatalf("after %d requests the strip holds %d blocks, want %d", i, got, i)
+		}
+	}
+
+	// The next one starts a fresh pass rather than scrolling the old one.
+	c.record("1.1.1.1", http.StatusServiceUnavailable)
+	pass := c.pass("1.1.1.1", strip)
+	if len(pass) != 1 {
+		t.Fatalf("the strip holds %d blocks after it filled, want it to restart at 1", len(pass))
+	}
+	if pass[0] != http.StatusServiceUnavailable {
+		t.Errorf("the fresh pass starts with %d, want the newest answer", pass[0])
+	}
+
+	c.record("1.1.1.1", http.StatusOK)
+	if got := len(c.pass("1.1.1.1", strip)); got != 2 {
+		t.Errorf("the second pass holds %d blocks, want 2", got)
+	}
+}
+
+func TestPassIsEmptyWithNothingToDraw(t *testing.T) {
+	c := newStatusChart([]string{"1.1.1.1"})
+
+	if got := c.pass("1.1.1.1", 10); len(got) != 0 {
+		t.Errorf("pass before any request = %v, want nothing", got)
+	}
+
+	c.record("1.1.1.1", http.StatusOK)
+	if got := c.pass("1.1.1.1", 0); len(got) != 0 {
+		t.Errorf("pass with no room = %v, want nothing", got)
+	}
+}
+
 // A run that starts answering differently has to show as a colour change part
 // way along the strip, not as a strip redrawn in one colour.
 func TestStatusChartKeepsTheHistory(t *testing.T) {
@@ -79,14 +122,14 @@ func TestStatusChartKeepsTheHistory(t *testing.T) {
 	_, blocks := drawStatus(t, 60, 8, c)
 	row := blocks[1]
 
-	if len(row) < 4 {
+	if len(row) != 4 {
 		t.Fatalf("drew %d blocks for 4 samples", len(row))
 	}
-	if row[len(row)-1] != tcell.ColorRed {
-		t.Errorf("the newest sample is %v, want the 503 in red", row[len(row)-1])
+	if row[3] != tcell.ColorRed {
+		t.Errorf("the newest sample is %v, want the 503 in red", row[3])
 	}
-	if row[len(row)-2] != tcell.ColorGreen {
-		t.Errorf("the sample before it is %v, want a 200 in green", row[len(row)-2])
+	if row[2] != tcell.ColorGreen {
+		t.Errorf("the sample before it is %v, want a 200 in green", row[2])
 	}
 }
 
@@ -171,6 +214,9 @@ func TestStatusChartFillsTheWidthItIsGiven(t *testing.T) {
 
 	if len(wide[1]) <= len(narrow[1]) {
 		t.Errorf("a wide panel drew %d blocks and a narrow one %d", len(wide[1]), len(narrow[1]))
+	}
+	if len(wide[1]) > 100 {
+		t.Errorf("a wide panel drew %d blocks, past its own width", len(wide[1]))
 	}
 	for _, size := range [][2]int{{30, 8}, {40, 8}, {80, 8}, {200, 8}} {
 		_, blocks := drawStatus(t, size[0], size[1], c)

@@ -29,6 +29,10 @@ type statusChart struct {
 
 	edges   []string
 	samples map[string][]int
+	// total counts every answer an edge has given, which is what decides how
+	// far along the current pass is. The samples slice is capped, so its
+	// length cannot be used for that.
+	total map[string]int
 }
 
 func newStatusChart(edges []string) *statusChart {
@@ -36,6 +40,7 @@ func newStatusChart(edges []string) *statusChart {
 		Box:     tview.NewBox(),
 		edges:   edges,
 		samples: make(map[string][]int, len(edges)),
+		total:   make(map[string]int, len(edges)),
 	}
 	c.SetBorder(true).SetTitle(" Status per edge ")
 	c.SetDrawFunc(c.draw)
@@ -51,6 +56,23 @@ func (c *statusChart) record(edge string, statusCode int) {
 	}
 
 	c.samples[edge] = codes
+	c.total[edge]++
+}
+
+// pass returns the answers drawn in the strip's current left-to-right pass,
+// oldest first.
+func (c *statusChart) pass(edge string, strip int) []int {
+	codes := c.samples[edge]
+	if strip <= 0 || len(codes) == 0 {
+		return nil
+	}
+
+	drawn := (c.total[edge]-1)%strip + 1
+	if drawn > len(codes) {
+		drawn = len(codes)
+	}
+
+	return codes[len(codes)-drawn:]
 }
 
 // latest is the code an edge answered with last, or zero before it has.
@@ -96,15 +118,12 @@ func (c *statusChart) draw(screen tcell.Screen, x, y, width, height int) (int, i
 func (c *statusChart) drawRow(screen tcell.Screen, x, y int, edge string, label, strip int) {
 	tview.Print(screen, tview.Escape(truncate(edge, label)), x, y, label, tview.AlignLeft, tcell.ColorWhite)
 
-	// Right-aligned, so the newest answer is always in the same column and
-	// the rows line up with each other.
-	codes := c.samples[edge]
-	for i := 0; i < strip; i++ {
-		j := len(codes) - strip + i
-		if j < 0 {
-			continue
-		}
-		screen.SetContent(x+label+i, y, barRune, nil, tcell.StyleDefault.Foreground(statusColor(codes[j])))
+	// The strip fills from the left and starts over once it reaches the right,
+	// so a run reads as a sequence of passes. A window sliding under the eye
+	// moves every block on every request, which makes a colour change hard to
+	// catch; here only the newest block moves.
+	for i, code := range c.pass(edge, strip) {
+		screen.SetContent(x+label+i, y, barRune, nil, tcell.StyleDefault.Foreground(statusColor(code)))
 	}
 
 	if latest := c.latest(edge); latest != 0 {

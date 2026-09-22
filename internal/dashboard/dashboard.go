@@ -4,8 +4,8 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -28,6 +28,10 @@ type Dashboard struct {
 	edges  []string
 
 	requests int64
+	// latest is each edge's most recent answer, which the response table is
+	// rebuilt from, and columns is which fields have earned a place in it.
+	latest  map[string]*probe.Result
+	columns []int
 
 	chart         *statusChart
 	responseTable *tview.Table
@@ -72,13 +76,14 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 		client:        client,
 		url:           u,
 		edges:         edges,
+		latest:        make(map[string]*probe.Result, len(edges)),
 		chart:         newStatusChart(edges),
-		responseTable: newResponseTable(edges),
+		responseTable: newResponseTable(),
 		latency:       newLatencyPanel(),
 		changes:       newChangesPanel(),
 	}
 
-	d.app.SetRoot(layout(d, u.String()), true)
+	d.app.SetRoot(layout(d, len(edges), u.String()), true)
 
 	return d
 }
@@ -115,17 +120,16 @@ func (d *Dashboard) probeLoop(ctx context.Context) error {
 // record folds one result into the widgets.
 func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 	d.requests++
+	d.latest[edge] = res
 
 	d.chart.record(edge, res.StatusCode)
 
-	for row, spec := range responseRows {
-		cell := d.responseTable.GetCell(row+1, index+1).SetText(spec.value(res))
-		if spec.color != nil {
-			cell.SetTextColor(spec.color(res))
-		}
-	}
-	d.responseTable.GetCell(requestCountRow(), index+1).
-		SetText(strconv.FormatInt(d.requests, 10))
+	d.columns = responseColumns(d.columns, d.edges, d.latest)
+	fillResponseTable(d.responseTable, d.edges, d.latest, d.columns)
+	// The counter belongs in the title now that the table has a row per edge
+	// rather than a column: as a column it would repeat one number down every
+	// row.
+	d.responseTable.SetTitle(fmt.Sprintf(" Response · %d requests ", d.requests))
 
 	d.latency.set(res.Trace)
 	d.changes.record(res.StatusCode, shortHash(res.BodySum), report.SeoulTime(res.Header("Date")))
