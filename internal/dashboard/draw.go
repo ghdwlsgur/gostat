@@ -68,10 +68,18 @@ func truncate(s string, width int) string {
 	return fmt.Sprintf("%s…", string([]rune(s)[:width-1]))
 }
 
+// failedStatus stands for an edge that did not answer at all. No status class
+// can, and zero is not a code any server sends.
+const failedStatus = 0
+
 // statusColor maps a status class onto the colour it is shown in. The chart,
 // the response table and the changes panel all use it, so a 503 looks the same
 // wherever it turns up.
 func statusColor(statusCode int) tcell.Color {
+	if statusCode == failedStatus {
+		return tcell.ColorGray
+	}
+
 	switch statusCode / 100 {
 	case 2:
 		return tcell.ColorGreen

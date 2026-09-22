@@ -116,12 +116,16 @@ func sweep(ctx context.Context, out io.Writer, client *probe.Client, u *url.URL,
 // attack keeps every worker requesting until one fails or the run is
 // cancelled. Only the counter goroutine writes to out, so the workers cannot
 // interleave halfway through a line.
-func attack(ctx context.Context, out io.Writer, client *probe.Client, u *url.URL, edges []string, threads int) error {
+func attack(parent context.Context, out io.Writer, client *probe.Client, u *url.URL, edges []string, threads int) error {
 	if threads < 1 {
 		threads = 1
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	// The workers share a context this function cancels on the first failure,
+	// so whether the run was stopped from outside has to be asked of the
+	// parent. Asking the derived one would answer "cancelled" every time
+	// something broke, and report a dead edge as a clean exit.
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	statuses := make(chan int, threads)
@@ -176,11 +180,12 @@ func attack(ctx context.Context, out io.Writer, client *probe.Client, u *url.URL
 	<-printed
 	fmt.Fprintln(out)
 
-	return stopped(ctx, first)
+	return stopped(parent, first)
 }
 
-// stopped reports err unless the run was simply cancelled, which is what
-// ctrl-c looks like from down here.
+// stopped reports err unless the run was cancelled from outside, which is what
+// ctrl-c looks like from down here. ctx must be the context handed in, not one
+// this package cancelled itself.
 func stopped(ctx context.Context, err error) error {
 	if err == nil {
 		return nil

@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"context"
+	"errors"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -109,7 +112,11 @@ func responseColumns(shown []int, edges []string, latest map[string]*probe.Resul
 
 // fillResponseTable rebuilds the table from the latest answer of each edge:
 // one row per address, one column per field in shown.
-func fillResponseTable(table *tview.Table, edges []string, latest map[string]*probe.Result, shown []int) {
+//
+// An edge in failed keeps the last thing it did say, greyed, with the failure
+// in its status cell. Blanking the row would throw away what it was serving
+// just before it stopped, which is the comparison worth having.
+func fillResponseTable(table *tview.Table, edges []string, latest map[string]*probe.Result, failed map[string]error, shown []int) {
 	table.Clear()
 
 	table.SetCell(0, 0, labelCell("IP"))
@@ -121,8 +128,11 @@ func fillResponseTable(table *tview.Table, edges []string, latest map[string]*pr
 		table.SetCell(row+1, 0, labelCell(edge))
 
 		res := latest[edge]
+		failure := failed[edge]
+
 		for column, i := range shown {
 			field := responseFields[i]
+
 			cell := valueCell("")
 			if res != nil {
 				cell = valueCell(field.value(res))
@@ -130,7 +140,30 @@ func fillResponseTable(table *tview.Table, edges []string, latest map[string]*pr
 					cell.SetTextColor(field.color(res))
 				}
 			}
+
+			if failure != nil {
+				if field.label == "StatusCode" {
+					cell = valueCell(failureText(failure))
+				}
+				// Stale, so it is shown as stale.
+				cell.SetTextColor(tcell.ColorGray)
+			}
+
 			table.SetCell(row+1, column+1, cell)
 		}
+	}
+}
+
+// failureText is the short form a table cell has room for.
+func failureText(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case strings.Contains(err.Error(), "connection refused"):
+		return "refused"
+	case strings.Contains(err.Error(), "no such host"):
+		return "no host"
+	default:
+		return "failed"
 	}
 }

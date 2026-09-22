@@ -110,9 +110,9 @@ func TestTrackedSaysNothingWhileItHoldsStill(t *testing.T) {
 func TestChangesPanelShowsTheCodesAndTheCurrentBody(t *testing.T) {
 	p := newChangesPanel()
 
-	p.record(200, "aaa", "2026-09-22 10:00:00")
-	p.record(503, "bbb", "2026-09-22 10:00:10")
-	p.record(200, "ccc", "2026-09-22 10:00:20")
+	p.record("1.1.1.1", 200, "aaa", "2026-09-22 10:00:00")
+	p.record("1.1.1.1", 503, "bbb", "2026-09-22 10:00:10")
+	p.record("1.1.1.1", 200, "ccc", "2026-09-22 10:00:20")
 
 	text := p.GetText(true)
 
@@ -139,8 +139,8 @@ func TestChangesPanelShowsTheCodesAndTheCurrentBody(t *testing.T) {
 // A 503 among the codes has to be visible without reading the number.
 func TestChangesPanelColorsTheStatusCodes(t *testing.T) {
 	p := newChangesPanel()
-	p.record(200, "aaa", "2026-09-22 10:00:00")
-	p.record(503, "bbb", "2026-09-22 10:00:10")
+	p.record("1.1.1.1", 200, "aaa", "2026-09-22 10:00:00")
+	p.record("1.1.1.1", 503, "bbb", "2026-09-22 10:00:10")
 
 	// GetText(false) keeps the colour tags in.
 	text := p.GetText(false)
@@ -175,5 +175,60 @@ func TestStatusTag(t *testing.T) {
 		if got := statusTag(code); got != want {
 			t.Errorf("statusTag(%q) = %q, want %q", code, got, want)
 		}
+	}
+}
+
+// Two edges can each be perfectly steady while serving different bodies.
+// Folded into one tracker they looked like a single field flipping on every
+// request, and the change count climbed forever.
+func TestChangesDoesNotCountSteadyEdgesAsChanging(t *testing.T) {
+	p := newChangesPanel()
+
+	for i := 0; i < 10; i++ {
+		p.record("1.1.1.1", 200, "aaa", "2026-09-22 10:00:00")
+		p.record("2.2.2.2", 200, "bbb", "2026-09-22 10:00:00")
+	}
+
+	for edge, tracker := range p.body {
+		if tracker.changes != 0 {
+			t.Errorf("edge %s held one body throughout but counted %d changes", edge, tracker.changes)
+		}
+	}
+
+	// They disagree, and the panel says so rather than picking one.
+	text := p.GetText(true)
+	if !strings.Contains(text, "2 edges differ") {
+		t.Errorf("the panel does not report the disagreement:\n%s", text)
+	}
+	for _, digest := range []string{"aaa", "bbb"} {
+		if strings.Contains(text, digest) {
+			t.Errorf("the panel picked %q as if it were the answer:\n%s", digest, text)
+		}
+	}
+}
+
+func TestChangesShowsTheSharedDigestWhenTheEdgesAgree(t *testing.T) {
+	p := newChangesPanel()
+	p.record("1.1.1.1", 200, "same", "2026-09-22 10:00:00")
+	p.record("2.2.2.2", 200, "same", "2026-09-22 10:00:00")
+
+	if text := p.GetText(true); !strings.Contains(text, "same") {
+		t.Errorf("the panel hides a digest the edges agree on:\n%s", text)
+	}
+}
+
+// An edge that stops answering is a change, and the panel is where a change
+// belongs.
+func TestChangesRecordsAFailure(t *testing.T) {
+	p := newChangesPanel()
+	p.record("1.1.1.1", 200, "aaa", "2026-09-22 10:00:00")
+	p.recordFailure("1.1.1.1", "2026-09-22 10:00:10")
+
+	text := p.GetText(true)
+	if !strings.Contains(text, failedLabel) {
+		t.Errorf("the panel does not note the failure:\n%s", text)
+	}
+	if got := p.status["1.1.1.1"].changes; got != 1 {
+		t.Errorf("the failure counted as %d changes, want 1", got)
 	}
 }

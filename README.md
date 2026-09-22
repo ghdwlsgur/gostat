@@ -137,7 +137,9 @@ $ gostat request https://www.naver.com/asset.js -t naver.com -r http://naver.com
 different questions.
 
 **Status per edge** gives every edge a row of blocks, one per request, coloured
-by status class, with the code it answered with last. The row fills from the
+by status class, with the code it answered with last. An edge that stops
+answering is drawn in grey and keeps being probed: a dead edge is the reason to
+be watching, not a reason to close the window. The row fills from the
 left and starts over when it reaches the right, so only the newest block moves
 and a change of colour is easy to catch. One edge going bad shows as a band of
 a different colour against the rest — no reading required. The legend names
@@ -154,9 +156,11 @@ sent it, and keeps it afterwards — a CDN that never sends `Age` or `Via` does
 not spend two columns saying so.
 
 **Changes** says whether the answer has been stable: every status code that has
-come back, the digest of the body right now, and how often each has moved. An
-origin that stamps a request id into its output changes its digest on every
-request, so that row counts the changes rather than listing them.
+come back, what the edges are serving now, and how often each has moved. Each
+edge is followed separately — two edges can both be steady while serving
+different bodies — so the row shows the shared digest when they agree and says
+how many differ when they do not. The digest covers only the bytes that came
+back, which with the default `Range` is the first two.
 
 The response table takes the arrow keys, since it is the one panel that can be
 wider than the terminal. Its header row and address column stay put while the
@@ -183,7 +187,9 @@ The middle column is how long that phase took on its own. The right column is th
 
 `DNS Lookup` reads `0s` whenever `-t` gave an address to dial: there was no lookup to make, and inventing a number would be worse than reporting none. If a connection came out of the keep-alive pool, the connection phases did not run at all and the report says so rather than leaving three zeros to be misread.
 
-Below the timings are the headers that were sent and the headers that came back, sorted so two runs of the same command can be diffed, followed by the size and SHA-256 of the body. With the default `Range: bytes=0-1` that digest covers two bytes rather than the whole object, which is enough to notice an edge whose content has changed.
+Below the timings are the headers that were sent and the headers that came back, sorted so two runs of the same command can be diffed, followed by the size and SHA-256 of **the bytes that came back**.
+
+That is worth reading carefully. With the default `Range: bytes=0-1` the digest covers two bytes, so it separates two edges serving a different object, and says nothing about an edit further into the same one. The response is authoritative about what it covers: the byte count is printed beside it. For a digest of the whole object, ask for the whole object — an origin that ignores `Range` answers `200` and the digest then covers everything it sent.
 
 # How it works
 
