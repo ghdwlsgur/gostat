@@ -157,13 +157,3 @@ func (c *statusChart) classesSeen() []int {
 
 	return classes
 }
-
-func contains(values []int, want int) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-
-	return false
-}

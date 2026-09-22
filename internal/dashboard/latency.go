@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -38,25 +37,6 @@ func scaleCells(d, of time.Duration, width int) int {
 	}
 
 	return cells
-}
-
-// compactDuration keeps a duration inside its column. Three significant
-// figures is as much as a bar can justify; the exact number is in the
-// response table.
-func compactDuration(d time.Duration) string {
-	switch {
-	case d <= 0:
-		// A phase that did not happen reads better as 0s than as 0ns.
-		return "0s"
-	case d >= time.Second:
-		return fmt.Sprintf("%.2fs", d.Seconds())
-	case d >= time.Millisecond:
-		return fmt.Sprintf("%.1fms", float64(d)/float64(time.Millisecond))
-	case d >= time.Microsecond:
-		return fmt.Sprintf("%.0fµs", float64(d)/float64(time.Microsecond))
-	default:
-		return fmt.Sprintf("%dns", d.Nanoseconds())
-	}
 }
 
 const (
