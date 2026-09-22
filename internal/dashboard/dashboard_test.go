@@ -228,55 +228,6 @@ func TestRecordFillsTheRowAndTheCounter(t *testing.T) {
 	}
 }
 
-func TestFillLatency(t *testing.T) {
-	d := testDashboard(t, []string{"1.1.1.1"})
-	d.fillLatency(sampleResult(http.StatusOK).Trace)
-
-	want := [][2]string{
-		{"DNS Lookup", "1ms"},
-		{"TCP Connection", "10ms"},
-		{"TLS Handshake", "100ms"},
-		{"Server Processing", "1s"},
-		{"Content Transfer", "2s"},
-		{"Total", "3.2s"},
-	}
-	for i, row := range want {
-		if got := [2]string{d.latencyTable.GetCell(i, 0).Text, d.latencyTable.GetCell(i, 1).Text}; got != row {
-			t.Errorf("row %d = %v, want %v", i, got, row)
-		}
-	}
-
-	// A plaintext request has one phase fewer - DNS, TCP, Server Processing,
-	// Content Transfer - so Total moves up a row and the handshake row must
-	// not keep showing a stale value.
-	d.fillLatency(probe.Trace{Total: time.Second})
-	if got := d.latencyTable.GetRowCount(); got != 5 {
-		t.Errorf("a plaintext trace left %d rows, want 5", got)
-	}
-	if got := d.latencyTable.GetCell(4, 0).Text; got != "Total" {
-		t.Errorf("total row = %q, want it to move up", got)
-	}
-	for i := 0; i < 5; i++ {
-		if d.latencyTable.GetCell(i, 0).Text == "TLS Handshake" {
-			t.Error("the TLS row survived a plaintext request")
-		}
-	}
-}
-
-func TestFillLatencyCallsOutAReusedConnection(t *testing.T) {
-	d := testDashboard(t, []string{"1.1.1.1"})
-
-	d.fillLatency(probe.Trace{Total: time.Second, Reused: true})
-	if !strings.Contains(d.latencyTable.GetCell(5, 1).Text, "reused") {
-		t.Error("a reused connection is not called out, so its zeros read as measurements")
-	}
-
-	d.fillLatency(probe.Trace{Total: time.Second})
-	if got := d.latencyTable.GetRowCount(); got != 5 {
-		t.Errorf("the reused note was left behind: %d rows", got)
-	}
-}
-
 func TestSeenKeepsDistinctValuesInOrder(t *testing.T) {
 	s := newSeen("StatusCode")
 

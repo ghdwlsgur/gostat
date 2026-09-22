@@ -270,6 +270,8 @@ func TestCompactDuration(t *testing.T) {
 		{1500 * time.Millisecond, "1.50s"},
 		{436083 * time.Nanosecond, "436µs"},
 		{900 * time.Nanosecond, "900ns"},
+		// A phase that did not happen, such as DNS when an address was dialled.
+		{0, "0s"},
 	}
 
 	for _, tt := range tests {

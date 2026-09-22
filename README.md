@@ -138,9 +138,14 @@ is the status class — followed by a bar whose coloured segments are the phases
 of the last one, scaled against the slowest edge on screen. So a slow edge has a
 long bar, and the colour says which phase made it slow.
 
+Underneath, the latency panel takes the last request apart phase by phase, each
+bar as wide as the share of the request that phase took, in the same colours. A
+request that spends 21ms of its 22ms waiting on the server says so at a glance.
+
 Press `q` or `ctrl-c` to leave. The view lays itself out to the terminal it is
 in: a wide window shows a longer run of history, a narrow one drops the
-sparkline before it shortens the bar.
+sparkline before it shortens the bar and falls back to short phase names rather
+than truncating them.
 
 # Reading the output
 
