@@ -20,8 +20,26 @@ function release
     exit 1
   fi
 
-  # Catch a broken config before a tag exists that cannot be taken back.
+  # Everything that can be checked is checked before the tag exists, because
+  # a pushed tag is what starts the image workflow and is not something to
+  # take back afterwards.
   goreleaser check
+
+  if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
+    GITHUB_TOKEN=$(gh auth token 2>/dev/null) || true
+    export GITHUB_TOKEN
+  fi
+
+  if [ -z "$GITHUB_TOKEN" ]; then
+    echo "GITHUB_TOKEN is unset and gh has no token to lend; goreleaser could"
+    echo "not publish, and the tag would already be pushed by then."
+    exit 1
+  fi
+
+  if git rev-parse "$tag" >/dev/null 2>&1; then
+    echo "tag $tag already exists"
+    exit 1
+  fi
 
   git tag -a "$tag" -m "Add $tag"
   # Pushing the tag is also what starts the container image workflow.
