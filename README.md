@@ -64,6 +64,17 @@ $ tar -xzvf ./gostat_1.2.6_Linux_`uname -m`.tar.gz
 ./gostat request https://ghdwlsgur.github.io -d
 ```
 
+### Container
+
+Published to GitHub Packages for `linux/amd64` and `linux/arm64`.
+
+```bash
+$ docker run --rm ghcr.io/ghdwlsgur/gostat request https://ghdwlsgur.github.io/
+
+# The dashboard needs a terminal, so give the container one.
+$ docker run --rm -it ghcr.io/ghdwlsgur/gostat request https://ghdwlsgur.github.io/ -d
+```
+
 # Compare
 
 #### /etc/hosts

@@ -1,56 +1,86 @@
+version: 2
+
 project_name: gostat
+
 before:
   hooks:
     - go mod tidy
+    # A release that cannot pass its own tests should not be cut.
+    - go test ./...
+
 builds:
-  - binary: gostat
+  - id: gostat
+    binary: gostat
+    main: .
+    env:
+      - CGO_ENABLED=0
     goos:
-      - windows
       - darwin
       - linux
+      - windows
     goarch:
       - amd64
       - arm64
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -mod=vendor
-    asmflags:
-      - all=-trimpath={{.Env.GOPATH}}
-    gcflags:
-      - all=-trimpath={{.Env.GOPATH}}
-    ldflags:
-      - -s -w
-      - -X main.gostatVersion={{.Version}}
     ignore:
       - goos: windows
         goarch: arm64
+    # -trimpath drops the build machine's paths from the binary, which is what
+    # the old asmflags and gcflags were reaching for through $GOPATH.
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.gostatVersion={{ .Version }}
+
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
       {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64      
+      {{- if eq .Arch "amd64" }}x86_64
       {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
 changelog:
   sort: asc
   filters:
     exclude:
       - "^docs:"
       - "^test:"
+
 release:
   github:
     owner: ghdwlsgur
     name: gostat
-brews:
+
+# brews (a Homebrew formula) is deprecated: Homebrew wants prebuilt binaries
+# distributed as casks. The tap stays the same, and `brew install gostat`
+# resolves a cask in a tapped repository just as it did a formula.
+homebrew_casks:
   - name: gostat
+    binaries:
+      - gostat
     homepage: "https://github.com/ghdwlsgur/gostat"
-    description: "HTTP GET to a domain's A records - or a pinned edge IP - with response headers and per-stage latency. A shorter curl --resolve."
-    tap:
+    description: "HTTP GET to a domain's A records or a pinned edge IP, with response headers and per-stage latency"
+    license: "MIT"
+    repository:
       owner: ghdwlsgur
       name: homebrew-gostat
     commit_author:
       name: ghdwlsgur
       email: vjinhyeokv@gmail.com
+    hooks:
+      post:
+        # A downloaded binary carries the quarantine attribute, and Gatekeeper
+        # refuses to run it until the attribute is cleared.
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/gostat"]
+          end

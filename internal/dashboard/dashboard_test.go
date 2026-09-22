@@ -8,6 +8,7 @@ import (
 
 	"github.com/ghdwlsgur/gostat/internal/probe"
 	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 )
 
 func sampleResult(status int) *probe.Result {
@@ -137,7 +138,7 @@ func TestShortHash(t *testing.T) {
 }
 
 func TestSeenKeepsDistinctValuesInOrder(t *testing.T) {
-	s := newSeen("StatusCode")
+	s := newSeen("StatusCode", 0)
 
 	if added := s.add("200"); !added {
 		t.Error("the first value was not reported as new")
@@ -160,7 +161,7 @@ func TestSeenKeepsDistinctValuesInOrder(t *testing.T) {
 
 // The row the caller mutates must not be the slice the set keeps.
 func TestSeenHandsOutACopy(t *testing.T) {
-	s := newSeen("Hash")
+	s := newSeen("Hash", 2)
 	s.add("abc")
 
 	s.table.Rows[0][1] = "tampered"
@@ -207,5 +208,51 @@ func TestFillLatencyTable(t *testing.T) {
 	}
 	if table.Rows[5][0] != "" || table.Rows[5][1] != "" {
 		t.Errorf("row 5 = %v, want it blanked", table.Rows[5])
+	}
+}
+
+// A row drawn past the bottom of its own panel is simply invisible, which is
+// how the request counter disappeared when a row was added to the table.
+func TestPanelsAreTallEnoughForTheirRows(t *testing.T) {
+	panels := map[string]*widgets.Table{
+		"response": newResponseTable([]string{"1.1.1.1"}),
+		"latency":  newLatencyTable(),
+		"history":  newHistoryTable("StatusCode History", 0),
+	}
+
+	for name, panel := range panels {
+		if got, want := panel.Dy(), tableHeight(len(panel.Rows)); got < want {
+			t.Errorf("%s panel is %d lines tall but its %d rows need %d", name, got, len(panel.Rows), want)
+		}
+	}
+}
+
+// The right-hand column stacks four panels; any overlap means one is drawn
+// over another.
+func TestRightHandPanelsDoNotOverlap(t *testing.T) {
+	stacked := []*widgets.Table{
+		newResponseTable([]string{"1.1.1.1"}),
+		newHistoryTable("StatusCode History", 0),
+		newHistoryTable("Time History", 1),
+		newHistoryTable("Hash History", 2),
+	}
+
+	for i := 1; i < len(stacked); i++ {
+		if above, below := stacked[i-1], stacked[i]; below.Min.Y < above.Max.Y {
+			t.Errorf("panel %d starts at %d, above the previous one's bottom at %d", i, below.Min.Y, above.Max.Y)
+		}
+	}
+}
+
+// The left column holds the chart above the latency table.
+func TestLeftHandPanelsDoNotOverlap(t *testing.T) {
+	chart := newEdgeChart("example.com", []string{"1.1.1.1"})["1.1.1.1"]
+	latency := newLatencyTable()
+
+	if latency.Min.Y < chart.Max.Y {
+		t.Errorf("the latency table starts at %d, above the chart's bottom at %d", latency.Min.Y, chart.Max.Y)
+	}
+	if chart.Max.X > latency.Max.X {
+		t.Errorf("the chart is wider than the column it shares with the latency table")
 	}
 }

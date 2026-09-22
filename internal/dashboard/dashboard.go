@@ -53,9 +53,9 @@ func Run(ctx context.Context, client *probe.Client, u *url.URL, edges []string) 
 		charts:        newEdgeChart(u.Hostname(), edges),
 		responseTable: newResponseTable(edges),
 		latencyTable:  newLatencyTable(),
-		statusSeen:    newSeen("StatusCode"),
-		hashSeen:      newSeen("Hash"),
-		changedAt:     newSeen("Time"),
+		statusSeen:    newSeen("StatusCode", 0),
+		changedAt:     newSeen("Time", 1),
+		hashSeen:      newSeen("Hash", 2),
 	}
 
 	return d.loop(ctx)
@@ -164,18 +164,11 @@ type seen struct {
 	table  *widgets.Table
 }
 
-var historyRects = map[string][2]int{
-	"StatusCode": {31, 34},
-	"Time":       {34, 37},
-	"Hash":       {37, 40},
-}
-
-func newSeen(title string) *seen {
-	rect := historyRects[title]
-
+// newSeen builds the nth history strip down the right-hand column.
+func newSeen(title string, n int) *seen {
 	s := &seen{
 		values: []string{title},
-		table:  newHistoryTable(title+" History", rect[0], rect[1]),
+		table:  newHistoryTable(title+" History", n),
 	}
 	s.sync()
 

@@ -14,6 +14,23 @@ import (
 // no room for all 44 base64 characters, and 12 of them still pin the content.
 const hashPrefix = 12
 
+// Layout. The chart and the latency table share the left column, the response
+// table and the histories the right one.
+const (
+	leftWidth   = 85
+	totalWidth  = 180
+	chartBottom = 30
+	historyRows = 1
+)
+
+// tableHeight is the room termui needs for a table: two lines per row and a
+// closing border. Deriving it is what keeps a row from being drawn outside its
+// own panel, which is how the request counter went missing when a row was
+// added to the response table.
+func tableHeight(rows int) int {
+	return rows*2 + 1
+}
+
 // responseRows drives the response table. Keeping the label next to the value
 // it holds is what stops the two drifting apart, which fourteen hand-indexed
 // assignments could not promise.
@@ -87,23 +104,35 @@ func newResponseTable(edges []string) *widgets.Table {
 		table.Rows[i+1][0] = row.label
 	}
 	table.Rows[len(table.Rows)-1][0] = "RequestCount"
-	table.SetRect(85, 0, 180, 31)
+	table.SetRect(leftWidth, 0, totalWidth, responseBottom())
 
 	return table
 }
 
-func newHistoryTable(title string, top, bottom int) *widgets.Table {
-	table := newTable(title, 1, 2)
-	table.SetRect(85, top, 180, bottom)
+// responseBottom is where the response table ends and the histories begin.
+func responseBottom() int {
+	return tableHeight(len(responseRows) + 2)
+}
+
+// historyTop is where the nth history table starts, counting from zero.
+func historyTop(n int) int {
+	return responseBottom() + n*tableHeight(historyRows)
+}
+
+func newHistoryTable(title string, n int) *widgets.Table {
+	table := newTable(title, historyRows, 2)
+	table.SetRect(leftWidth, historyTop(n), totalWidth, historyTop(n+1))
 
 	return table
 }
 
 func newLatencyTable() *widgets.Table {
 	// One row per phase, plus Total. TLS only shows for https, so the table is
-	// sized for the widest case and unused rows stay blank.
-	table := newTable("Latency", 6, 2)
-	table.SetRect(0, 30, 85, 43)
+	// sized for the widest case and the unused row stays blank.
+	const rows = 6
+
+	table := newTable("Latency", rows, 2)
+	table.SetRect(0, chartBottom, leftWidth, chartBottom+tableHeight(rows))
 
 	return table
 }
@@ -119,7 +148,7 @@ func newEdgeChart(domain string, edges []string) map[string]*widgets.StackedBarC
 		chart.Data = make([][]float64, len(edges))
 		chart.Labels = edges
 		chart.BarWidth = 20
-		chart.SetRect(0, 0, 85, 30)
+		chart.SetRect(0, 0, leftWidth, chartBottom)
 		chart.LabelStyles = []ui.Style{{Fg: ui.ColorWhite, Bg: ui.ColorClear, Modifier: ui.ModifierClear}}
 		chart.NumStyles = []ui.Style{{Bg: ui.ColorClear, Modifier: ui.ModifierClear}}
 		style(&chart.Block)

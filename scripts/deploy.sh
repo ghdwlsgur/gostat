@@ -19,18 +19,18 @@ function test_with_circleci
 }
 
 function release
-{    
-  go mod vendor
-  sudo rm -rf "$CURRENT"/dist "$CURRENT"/gopath  
-  export GOPATH="$CURRENT"/gopath
-
+{
   tag=$1
   if [ -z "$tag" ]; then
     echo "not found tag name"
     exit 1
   fi
- 
+
+  # Catch a broken config before a tag exists that cannot be taken back.
+  goreleaser check
+
   git tag -a "$tag" -m "Add $tag"
+  # Pushing the tag is also what starts the container image workflow.
   git push origin "$tag"
 
   goreleaser release --clean
@@ -38,10 +38,7 @@ function release
 
 function release_test
 {
-  sudo rm -rf "$CURRENT"/dist "$CURRENT"/gopath  
-  export GOPATH="$CURRENT"/gopath
-
-  goreleaser release --snapshot --clean
+  goreleaser release --snapshot --clean --skip=publish
 }
 
 CMD=$1
