@@ -30,9 +30,8 @@ type Dashboard struct {
 	edges  []string
 
 	requests int64
-	recent   map[string][]int
 
-	statusTable   *tview.Table
+	chart         *edgeChart
 	responseTable *tview.Table
 	latencyTable  *tview.Table
 	statusSeen    *seen
@@ -77,8 +76,7 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 		client:        client,
 		url:           u,
 		edges:         edges,
-		recent:        make(map[string][]int, len(edges)),
-		statusTable:   newStatusTable(edges),
+		chart:         newEdgeChart(edges),
 		responseTable: newResponseTable(edges),
 		latencyTable:  newLatencyTable(),
 		statusSeen:    newSeen("StatusCode"),
@@ -124,7 +122,7 @@ func (d *Dashboard) probeLoop(ctx context.Context) error {
 func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 	d.requests++
 
-	d.recordStatus(index, edge, res.StatusCode)
+	d.chart.record(edge, res.StatusCode, res.Trace)
 
 	for row, spec := range responseRows {
 		d.responseTable.GetCell(row+1, index+1).SetText(spec.value(res))
@@ -140,22 +138,6 @@ func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 		d.changedAt.add(report.SeoulTime(res.Header("Date")))
 	}
 	d.hashSeen.add(shortHash(res.BodySum))
-}
-
-// recordStatus appends to the edge's strip of recent codes, dropping the
-// oldest once the row is full.
-func (d *Dashboard) recordStatus(index int, edge string, statusCode int) {
-	codes := append(d.recent[edge], statusCode)
-	if len(codes) > recentStatuses {
-		codes = codes[len(codes)-recentStatuses:]
-	}
-	d.recent[edge] = codes
-
-	for i, code := range codes {
-		d.statusTable.SetCell(index, i+1, tview.NewTableCell(strconv.Itoa(code)).
-			SetTextColor(statusColor(code)).
-			SetSelectable(false))
-	}
 }
 
 // fillLatency rewrites the latency table for one request, clearing the row a

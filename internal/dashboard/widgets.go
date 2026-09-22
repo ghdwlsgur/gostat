@@ -16,9 +16,6 @@ const (
 	// room for all 44 base64 characters, and 12 of them still pin the content.
 	hashPrefix = 12
 
-	// recentStatuses is how many samples the per-edge strip keeps.
-	recentStatuses = 12
-
 	// Panel heights, in lines, borders included. Everything else is given a
 	// share of whatever is left, so the view fits the terminal it is in
 	// rather than demanding a particular size.
@@ -138,21 +135,6 @@ func requestCountRow() int {
 	return len(responseRows) + 1
 }
 
-// newStatusTable shows the last few status codes each edge answered with,
-// which is what the stacked bar chart was reaching for. A row of coloured
-// codes says the same thing in less space and stays readable when every edge
-// answers alike.
-func newStatusTable(edges []string) *tview.Table {
-	table := newTable("Status per edge")
-	table.SetFixed(0, 1)
-
-	for i, edge := range edges {
-		table.SetCell(i, 0, labelCell(edge))
-	}
-
-	return table
-}
-
 func newLatencyTable() *tview.Table {
 	return newTable("Latency")
 }
@@ -169,7 +151,7 @@ func newHistoryView(title string) *tview.TextView {
 // needed 180 by 43; anything smaller drew an empty box and no data at all.
 func layout(d *Dashboard, subtitle string) tview.Primitive {
 	left := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(d.statusTable, 0, 1, false).
+		AddItem(d.chart, 0, 1, false).
 		AddItem(d.latencyTable, latencyHeight, 0, false)
 
 	right := tview.NewFlex().SetDirection(tview.FlexRow).
