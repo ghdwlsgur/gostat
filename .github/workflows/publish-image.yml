@@ -55,6 +55,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            # A manual run has no version to name itself after, and the semver
+            # rules above only match a tag ref, so it would otherwise push
+            # nothing at all. Give it edge plus the commit it came from.
+            type=raw,value=edge,enable=${{ github.ref_type != 'tag' }}
+            type=sha,format=short,enable=${{ github.ref_type != 'tag' }}
           labels: |
             org.opencontainers.image.title=gostat
             org.opencontainers.image.description=HTTP GET to a domain's A records - or a pinned edge IP - with response headers and per-stage latency. A shorter curl --resolve.
