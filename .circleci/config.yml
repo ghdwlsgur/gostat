@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: /go/src/github.com/ghdwlsgur/gostat
     docker:
-      - image: golang:1.20.4
+      - image: golang:1.26
     environment:
       GOPATH: /go
     steps:

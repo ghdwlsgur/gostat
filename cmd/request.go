@@ -10,7 +10,6 @@ import (
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // edgeHistoryLength is how many samples one edge keeps in its bar chart before
@@ -360,10 +359,16 @@ func request(ips []string, addrInfo *internal.Address, requestOptions *internal.
 	return nil
 }
 
-func runAttack(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string, threads int) {
+func runAttack(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string, threads int) error {
 	if threads < 1 {
 		threads = 1
 	}
+
+	// The first worker to fail ends the run; the rest see the closed channel
+	// and stop on their next pass instead of being killed mid-request.
+	stop := make(chan struct{})
+	var once sync.Once
+	var firstErr error
 
 	var wg sync.WaitGroup
 	for i := 0; i < threads; i++ {
@@ -375,14 +380,26 @@ func runAttack(ips []string, addrInfo *internal.Address, requestOptions *interna
 			// pass, so sharing one struct across threads is a data race.
 			local := *addrInfo
 			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
 				requestOptions.IncRequestCount()
 				if err := request(ips, &local, requestOptions, protocol); err != nil {
-					panicRed(err)
+					once.Do(func() {
+						firstErr = err
+						close(stop)
+					})
+					return
 				}
 			}
 		}()
 	}
 	wg.Wait()
+
+	return firstErr
 }
 
 func dynamicStatusCodeColor(statusCode int, sbcColor []ui.Color) []ui.Color {
@@ -408,86 +425,85 @@ func dynamicStatusCodeColor(statusCode int, sbcColor []ui.Color) []ui.Color {
 	return sbcColor
 }
 
-var (
-	requestCommand = &cobra.Command{
-		Use:   "request",
+// requestFlags is what the request command accepts on the command line.
+type requestFlags struct {
+	target        string
+	port          int
+	threads       int
+	host          string
+	referer       string
+	authorization string
+	attack        bool
+	dashboard     bool
+}
+
+func newRequestCommand() *cobra.Command {
+	flags := &requestFlags{}
+
+	cmd := &cobra.Command{
+		Use:   "request <url>",
 		Short: "Exec `gostat request https://domain.com -t domain.com`",
 		Long:  "Receives the response of the URL to each A record of the target domain to the url using the http or https protocol.",
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
-				panicRed(err)
-			}
-
-			protocol, rest, err := parseURL(args[0])
-			if err != nil {
-				panicRed(err)
-			}
-
-			domainName := strings.Split(rest, "/")[0]
-			target := strings.TrimSpace(viper.GetString("target-domain"))
-			if target == "" {
-				target = domainName
-			}
-
-			ips, err := internal.GetRecordIPv4(target)
-			if err != nil {
-				panicRed(err)
-			}
-			if len(ips) == 0 {
-				panicRed(fmt.Errorf("no IPv4 address found for %q", target))
-			}
-
-			// ! [required] Enter your address information.
-			addrInfo := &internal.Address{
-				Url:        rest,
-				DomainName: domainName,
-				Target:     target,
-			}
-
-			// [optional] It is additionally saved when entering a header or referrer.
-			requestOptions := &internal.ReqOptions{
-				Host:          strings.TrimSpace(viper.GetString("host-name")),
-				Referer:       strings.TrimSpace(viper.GetString("referer-name")),
-				Authorization: strings.TrimSpace(viper.GetString("authorization-name")),
-				AttackMode:    viper.GetBool("attack-mode"),
-				Port:          resolvePort(protocol, viper.GetInt("port-number")),
-			}
-
-			switch {
-			case viper.GetBool("dashboard-mode"):
-				addrInfo.IP = target
-				if err := showDashboard(ips, addrInfo, requestOptions, protocol); err != nil {
-					panicRed(err)
-				}
-			case requestOptions.AttackMode:
-				runAttack(ips, addrInfo, requestOptions, protocol, viper.GetInt("thread-count"))
-			default:
-				if err := request(ips, addrInfo, requestOptions, protocol); err != nil {
-					panicRed(err)
-				}
-			}
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRequest(args[0], flags)
 		},
 	}
-)
 
-func init() {
-	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
-	requestCommand.Flags().IntP("port", "p", 0, "[optional] Port to connect to (default 80 for http, 443 for https).")
-	requestCommand.Flags().IntP("thread", "n", 1, "[optional] choose thread numbers")
-	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
-	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")
-	requestCommand.Flags().StringP("referer", "r", "", "[optional]")
-	requestCommand.Flags().BoolP("attack", "a", false, "[optional] enable attack mode")
-	requestCommand.Flags().BoolP("dashboard", "d", false, "[optional] enable dashboard")
+	f := cmd.Flags()
+	f.StringVarP(&flags.target, "target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
+	f.IntVarP(&flags.port, "port", "p", 0, "[optional] Port to connect to (default 80 for http, 443 for https).")
+	f.IntVarP(&flags.threads, "thread", "n", 1, "[optional] choose thread numbers")
+	f.StringVarP(&flags.host, "host", "H", "", "[optional] The host to put in the request headers.")
+	f.StringVarP(&flags.authorization, "authorization", "A", "", "[optional]")
+	f.StringVarP(&flags.referer, "referer", "r", "", "[optional]")
+	f.BoolVarP(&flags.attack, "attack", "a", false, "[optional] enable attack mode")
+	f.BoolVarP(&flags.dashboard, "dashboard", "d", false, "[optional] enable dashboard")
 
-	viper.BindPFlag("target-domain", requestCommand.Flags().Lookup("target"))
-	viper.BindPFlag("port-number", requestCommand.Flags().Lookup("port"))
-	viper.BindPFlag("host-name", requestCommand.Flags().Lookup("host"))
-	viper.BindPFlag("authorization-name", requestCommand.Flags().Lookup("authorization"))
-	viper.BindPFlag("referer-name", requestCommand.Flags().Lookup("referer"))
-	viper.BindPFlag("attack-mode", requestCommand.Flags().Lookup("attack"))
-	viper.BindPFlag("thread-count", requestCommand.Flags().Lookup("thread"))
-	viper.BindPFlag("dashboard-mode", requestCommand.Flags().Lookup("dashboard"))
+	return cmd
+}
 
-	rootCmd.AddCommand(requestCommand)
+func runRequest(arg string, flags *requestFlags) error {
+	protocol, rest, err := parseURL(arg)
+	if err != nil {
+		return err
+	}
+
+	domainName := strings.Split(rest, "/")[0]
+	target := strings.TrimSpace(flags.target)
+	if target == "" {
+		target = domainName
+	}
+
+	ips, err := internal.GetRecordIPv4(target)
+	if err != nil {
+		return err
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("no IPv4 address found for %q", target)
+	}
+
+	addrInfo := &internal.Address{
+		Url:        rest,
+		DomainName: domainName,
+		Target:     target,
+	}
+
+	requestOptions := &internal.ReqOptions{
+		Host:          strings.TrimSpace(flags.host),
+		Referer:       strings.TrimSpace(flags.referer),
+		Authorization: strings.TrimSpace(flags.authorization),
+		AttackMode:    flags.attack,
+		Port:          resolvePort(protocol, flags.port),
+	}
+
+	switch {
+	case flags.dashboard:
+		addrInfo.IP = target
+		return showDashboard(ips, addrInfo, requestOptions, protocol)
+	case flags.attack:
+		return runAttack(ips, addrInfo, requestOptions, protocol, flags.threads)
+	default:
+		return request(ips, addrInfo, requestOptions, protocol)
+	}
 }
