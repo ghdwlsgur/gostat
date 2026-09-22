@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +12,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+// edgeHistoryLength is how many samples one edge keeps in its bar chart before
+// every chart is wiped and started over.
+const edgeHistoryLength = 9
 
 type uniqueBox struct {
 	data []string
@@ -106,14 +109,9 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	}
 	defer ui.Close()
 
-	if err := ui.Init(); err != nil {
-		return err
-	}
-	defer ui.Close()
-
-	statusBox := &uniqueBox{}
-	hashBox := &uniqueBox{}
-	timeBox := &uniqueBox{}
+	statusBox := &uniqueBox{data: []string{"StatusCode"}}
+	hashBox := &uniqueBox{data: []string{"Hash"}}
+	timeBox := &uniqueBox{data: []string{"Time"}}
 	statusCodeHistoryTable := createHistoryTable("statusCode")
 	hashHistoryTable := createHistoryTable("hash")
 	timeHistoryTable := createHistoryTable("time")
@@ -121,71 +119,51 @@ func showDashboard(ips []string, addrInfo *internal.Address, requestOptions *int
 	edgeCharts := createEdgeChart(addrInfo.DomainName, ips)
 	uiEvents := ui.PollEvents()
 
-	statusBox.data = append(statusBox.data, "StatusCode")
-	hashBox.data = append(hashBox.data, "Hash")
-	timeBox.data = append(timeBox.data, "Time")
-
-delay:
 	for {
 		select {
 		case e := <-uiEvents:
+			// Returning rather than exiting lets the deferred ui.Close put the
+			// terminal back the way it was found.
 			if e.Type == ui.KeyboardEvent && (e.ID == "q" || e.ID == "<C-c>") {
-				os.Exit(0)
-				break delay
+				return nil
 			}
 		default:
 			for i, ip := range ips {
 				addrInfo.IP = ip
-				requestOptions.Port = viper.GetInt("port-number")
+
+				var response *internal.Response
 				switch protocol {
 				case "https":
-					response := internal.GetStatusCodeOnHTTPS(addrInfo, requestOptions)
-					if response.Error != nil {
-						return response.Error
-					}
-
-					widgetDraw(&drawArgs{
-						edgeCharts:             edgeCharts,
-						response:               response,
-						ip:                     ip,
-						ipListLength:           len(ips) - 1,
-						index:                  i,
-						responseTable:          responseTable,
-						statusCodeHistoryTable: statusCodeHistoryTable,
-						hashHistoryTable:       hashHistoryTable,
-						timeHistoryTable:       timeHistoryTable,
-						statusBox:              statusBox,
-						hashBox:                hashBox,
-						timeBox:                timeBox,
-						requestOptions:         requestOptions,
-					})
+					response = internal.GetStatusCodeOnHTTPS(addrInfo, requestOptions)
 				case "http":
-					response := internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
-					if response.Error != nil {
-						return response.Error
-					}
-
-					widgetDraw(&drawArgs{
-						edgeCharts:             edgeCharts,
-						response:               response,
-						ip:                     ip,
-						ipListLength:           len(ips) - 1,
-						index:                  i,
-						responseTable:          responseTable,
-						statusCodeHistoryTable: statusCodeHistoryTable,
-						hashHistoryTable:       hashHistoryTable,
-						timeHistoryTable:       timeHistoryTable,
-						statusBox:              statusBox,
-						hashBox:                hashBox,
-						timeBox:                timeBox,
-						requestOptions:         requestOptions,
-					})
+					response = internal.GetStatusCodeOnHTTP(addrInfo, requestOptions)
+				default:
+					return fmt.Errorf("unsupported protocol %q", protocol)
 				}
+
+				if response.Error != nil {
+					return response.Error
+				}
+
+				widgetDraw(&drawArgs{
+					edgeCharts:             edgeCharts,
+					response:               response,
+					ip:                     ip,
+					ipListLength:           len(ips) - 1,
+					index:                  i,
+					responseTable:          responseTable,
+					statusCodeHistoryTable: statusCodeHistoryTable,
+					hashHistoryTable:       hashHistoryTable,
+					timeHistoryTable:       timeHistoryTable,
+					statusBox:              statusBox,
+					hashBox:                hashBox,
+					timeBox:                timeBox,
+					requestOptions:         requestOptions,
+				})
 			}
 		}
-		requestOptions.RequestCount++
+		requestOptions.IncRequestCount()
 	}
-	return nil
 }
 
 func createEdgeChart(domain string, ips []string) map[string]*widgets.StackedBarChart {
@@ -196,7 +174,9 @@ func createEdgeChart(domain string, ips []string) map[string]*widgets.StackedBar
 		sbc.Title = fmt.Sprintf("%s %s", "StatusCode per Edge of", domain)
 		sbc.TitleStyle.Bg = 0
 		sbc.Labels = ips
-		sbc.Data = make([][]float64, 9)
+		// One bar per edge: a domain with more than nine A records used to
+		// index past the end of this slice.
+		sbc.Data = make([][]float64, len(ips))
 		sbc.SetRect(0, 0, 85, 30)
 		sbc.BarWidth = 20
 		sbc.BorderStyle.Fg = 7
@@ -290,7 +270,7 @@ func createResponseTable(ips []string) *widgets.Table {
 	return responseTable
 }
 
-func widgetDraw(d *drawArgs) int {
+func widgetDraw(d *drawArgs) {
 	ip := d.ip
 	i := d.index
 	response := d.response
@@ -319,33 +299,60 @@ func widgetDraw(d *drawArgs) int {
 	d.timeHistoryTable.Rows[0] = d.timeBox.Get()
 	d.rendering()
 
-	if len(edgeCharts[ip].Data[i]) == 9 && i == d.ipListLength {
+	if len(edgeCharts[ip].Data[i]) >= edgeHistoryLength && i == d.ipListLength {
 		for _, v := range edgeCharts {
-			v.Data = make([][]float64, 9)
+			v.Data = make([][]float64, d.ipListLength+1)
 		}
 	}
-
-	return d.statusBox.Length()
 }
 
-func getProtocol(data []string) (string, error) {
-	if len(data[0]) > 5 {
-		if data[0] != "http" {
-			return "", fmt.Errorf("the input format is incorrect")
-		}
-		if data[0] != "https" {
-			return "", fmt.Errorf("the input format is incorrect")
-		}
+// parseURL splits the argument into its protocol and the rest of the URL,
+// rejecting anything that is not an http or https address.
+func parseURL(arg string) (protocol, rest string, err error) {
+	protocol, rest, found := strings.Cut(arg, "://")
+	if !found {
+		return "", "", fmt.Errorf("%q is not a valid url: missing \"://\"", arg)
 	}
-	return data[0], nil
+
+	if protocol != "http" && protocol != "https" {
+		return "", "", fmt.Errorf("unsupported protocol %q: only http and https are supported", protocol)
+	}
+
+	if rest == "" || strings.HasPrefix(rest, "/") {
+		return "", "", fmt.Errorf("%q is not a valid url: missing host", arg)
+	}
+
+	return protocol, rest, nil
 }
 
-func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
+// resolvePort turns the -p flag into a concrete port. Zero means the flag was
+// left alone, so the protocol default applies.
+func resolvePort(protocol string, flagPort int) int {
+	if flagPort > 0 {
+		return flagPort
+	}
+
+	if protocol == "https" {
+		return internal.DefaultHTTPSPort
+	}
+	return internal.DefaultHTTPPort
+}
+
+// request walks every A record of the target once.
+func request(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string) error {
 	for _, ip := range ips {
 		addrInfo.IP = ip
-		requestOptions.Port = viper.GetInt("port-number")
 
-		err := internal.ResolveHTTP(addrInfo, requestOptions)
+		var err error
+		switch protocol {
+		case "http":
+			err = internal.ResolveHTTP(addrInfo, requestOptions)
+		case "https":
+			err = internal.ResolveHTTPS(addrInfo, requestOptions)
+		default:
+			err = fmt.Errorf("unsupported protocol %q", protocol)
+		}
+
 		if err != nil {
 			return err
 		}
@@ -353,16 +360,29 @@ func reqHTTP(ips []string, addrInfo *internal.Address, requestOptions *internal.
 	return nil
 }
 
-func reqHTTPS(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions) error {
-	for _, ip := range ips {
-		addrInfo.IP = ip
-
-		err := internal.ResolveHTTPS(addrInfo, requestOptions)
-		if err != nil {
-			return err
-		}
+func runAttack(ips []string, addrInfo *internal.Address, requestOptions *internal.ReqOptions, protocol string, threads int) {
+	if threads < 1 {
+		threads = 1
 	}
-	return nil
+
+	var wg sync.WaitGroup
+	for i := 0; i < threads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Every worker gets its own Address: request rewrites IP on each
+			// pass, so sharing one struct across threads is a data race.
+			local := *addrInfo
+			for {
+				requestOptions.IncRequestCount()
+				if err := request(ips, &local, requestOptions, protocol); err != nil {
+					panicRed(err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func dynamicStatusCodeColor(statusCode int, sbcColor []ui.Color) []ui.Color {
@@ -394,42 +414,17 @@ var (
 		Short: "Exec `gostat request https://domain.com -t domain.com`",
 		Long:  "Receives the response of the URL to each A record of the target domain to the url using the http or https protocol.",
 		Run: func(cmd *cobra.Command, args []string) {
-			var (
-				err        error
-				url        string
-				domainName string
-				target     string
-			)
-
-			var (
-				host          string
-				referer       string
-				authorization string
-			)
-
-			if err := cobra.MinimumNArgs(1)(cmd, args); err != nil {
+			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 				panicRed(err)
 			}
 
-			if len(args) > 1 {
-				panicRed(fmt.Errorf("up to one argument can be entered"))
-			}
-			splitData := strings.Split(args[0], "://")
-
-			// Check the url format.
-			protocol, err := getProtocol(splitData)
+			protocol, rest, err := parseURL(args[0])
 			if err != nil {
 				panicRed(err)
 			}
 
-			url = splitData[1]
-			host = strings.TrimSpace(viper.GetString("host-name"))
-			referer = strings.TrimSpace(viper.GetString("referer-name"))
-			authorization = strings.TrimSpace(viper.GetString("authorization-name"))
-			mode := viper.GetBool("attack-mode")
-			dashboard := viper.GetBool("dashboard-mode")
-			domainName = strings.Split(url, "/")[0]
-			target = strings.TrimSpace(viper.GetString("target-domain"))
+			domainName := strings.Split(rest, "/")[0]
+			target := strings.TrimSpace(viper.GetString("target-domain"))
 			if target == "" {
 				target = domainName
 			}
@@ -438,93 +433,46 @@ var (
 			if err != nil {
 				panicRed(err)
 			}
+			if len(ips) == 0 {
+				panicRed(fmt.Errorf("no IPv4 address found for %q", target))
+			}
 
 			// ! [required] Enter your address information.
 			addrInfo := &internal.Address{
-				Url:        url,
+				Url:        rest,
 				DomainName: domainName,
 				Target:     target,
 			}
 
 			// [optional] It is additionally saved when entering a header or referrer.
 			requestOptions := &internal.ReqOptions{
-				Host:          host,
-				Referer:       referer,
-				Authorization: authorization,
-				AttackMode:    mode,
+				Host:          strings.TrimSpace(viper.GetString("host-name")),
+				Referer:       strings.TrimSpace(viper.GetString("referer-name")),
+				Authorization: strings.TrimSpace(viper.GetString("authorization-name")),
+				AttackMode:    viper.GetBool("attack-mode"),
+				Port:          resolvePort(protocol, viper.GetInt("port-number")),
 			}
 
-			if dashboard {
-				var wg sync.WaitGroup
-				for i := 0; i < 1; i++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						for {
-							requestOptions.RequestCount++
-							addrInfo.IP = target
-
-							err = showDashboard(ips, addrInfo, requestOptions, protocol)
-							if err != nil {
-								panicRed(err)
-							}
-						}
-					}()
+			switch {
+			case viper.GetBool("dashboard-mode"):
+				addrInfo.IP = target
+				if err := showDashboard(ips, addrInfo, requestOptions, protocol); err != nil {
+					panicRed(err)
 				}
-				wg.Wait()
-			}
-
-			if mode {
-				var wg sync.WaitGroup
-				for i := 0; i < viper.GetInt("thread-count"); i++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						for {
-							requestOptions.RequestCount++
-							addrInfo.IP = target
-
-							if protocol == "http" {
-								err = reqHTTP(ips, addrInfo, requestOptions)
-								if err != nil {
-									panicRed(err)
-								}
-							}
-
-							if protocol == "https" {
-								err = reqHTTPS(ips, addrInfo, requestOptions)
-								if err != nil {
-									panicRed(err)
-								}
-							}
-						}
-					}()
-				}
-				wg.Wait()
-			} else {
-
-				if protocol == "http" {
-					err = reqHTTP(ips, addrInfo, requestOptions)
-					if err != nil {
-						panicRed(err)
-					}
-				}
-
-				if protocol == "https" {
-					err = reqHTTPS(ips, addrInfo, requestOptions)
-					if err != nil {
-						panicRed(err)
-					}
+			case requestOptions.AttackMode:
+				runAttack(ips, addrInfo, requestOptions, protocol, viper.GetInt("thread-count"))
+			default:
+				if err := request(ips, addrInfo, requestOptions, protocol); err != nil {
+					panicRed(err)
 				}
 			}
-
 		},
 	}
 )
 
 func init() {
 	requestCommand.Flags().StringP("target", "t", "", "[required] Receive responses by proxying the A record of the domain forwarded to the target.")
-	requestCommand.Flags().IntP("port", "p", 80, "[optional] For http protocol, the default value is 80.")
+	requestCommand.Flags().IntP("port", "p", 0, "[optional] Port to connect to (default 80 for http, 443 for https).")
 	requestCommand.Flags().IntP("thread", "n", 1, "[optional] choose thread numbers")
 	requestCommand.Flags().StringP("host", "H", "", "[optional] The host to put in the request headers.")
 	requestCommand.Flags().StringP("authorization", "A", "", "[optional]")

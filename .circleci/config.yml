@@ -20,5 +20,5 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
           context: develop

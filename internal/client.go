@@ -3,20 +3,10 @@ package internal
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 )
-
-// Split long titles to fit output format.
-func PrintSplitFunc(word, field string) {
-	for i, n := range strings.Split(word, ",") {
-		if i == 0 {
-			PrintFunc(field, n)
-		} else {
-			fmt.Printf("\t\t%s\n", n)
-		}
-	}
-}
 
 // Title text is displayed in black letters.
 func PrintFunc(field, value string) {
@@ -44,71 +34,63 @@ func printHiWhiteString(field, value string) {
 	}
 }
 
-func printStatusFormat(field string, valueA string, valueB string) {
+// Column widths of the latency table, in visible characters.
+const (
+	latencyFieldWidth    = 20
+	latencyDurationWidth = 16
+)
 
-	fieldLength := len(field) - 9
-
-	if fieldLength < 8 {
-		if len(valueA) <= 8 {
-			fmt.Printf("\t%s\t\t\t%v\t\t\t\t%s\n", field, valueA, valueB)
-			return
-		}
-		if len(valueA) <= 16 {
-			fmt.Printf("\t%s\t\t\t%v\t\t\t%s\n", field, valueA, valueB)
-			return
-		}
-		if len(valueA) <= 24 {
-			fmt.Printf("\t%s\t\t\t%v\t\t%s\n", field, valueA, valueB)
-			return
-		}
-	}
-
-	if fieldLength < 16 {
-		if len(valueA) <= 8 {
-			fmt.Printf("\t%s\t%v\t\t\t\t%s\n", field, valueA, valueB)
-			return
-		}
-		if len(valueA) <= 16 {
-			fmt.Printf("\t%s\t\t%v\t\t\t%s\n", field, valueA, valueB)
-			return
-		}
-		if len(valueA) <= 24 {
-			fmt.Printf("\t%s\t\t%v\t\t%s\n", field, valueA, valueB)
-			return
-		}
-	}
-
-	if fieldLength < 24 {
-		if len(valueA) <= 8 {
-			fmt.Printf("\t%s\t%v\t\t\t\t%s\n", field, valueA, valueB)
-			return
-		}
-		if len(valueA) <= 16 {
-			fmt.Printf("\t%s\t%v\t\t\t%s\n", field, valueA, valueB)
-			return
-		}
-		if len(valueA) <= 24 {
-			fmt.Printf("\t%s\t%v\t\t%s\n", field, valueA, valueB)
-			return
-		}
-	}
-
+// printStatusFormat prints one row of the latency table. The padding is worked
+// out from the plain text: colour escapes are bytes that fmt counts towards a
+// width but the terminal never shows, so %-Ns on an already-coloured string
+// lines up differently depending on whether colour is on.
+func printStatusFormat(field, duration, elapsed string) {
+	fmt.Printf("\t%s%s%s\n",
+		padded(color.HiWhiteString(field), field, latencyFieldWidth),
+		padded(color.HiGreenString(duration), duration, latencyDurationWidth),
+		color.HiMagentaString(elapsed))
 }
 
+// printStatusTotal prints the closing row, lined up under the elapsed column.
+func printStatusTotal(elapsed string) {
+	fmt.Printf("\t%s%s\n\n",
+		padded(color.HiWhiteString("Total"), "Total", latencyFieldWidth+latencyDurationWidth),
+		color.HiMagentaString(elapsed))
+}
+
+// padded right-pads coloured to the visible width that plain would occupy.
+// The count is in runes, not bytes: a duration like "270µs" is one byte wider
+// than it looks on screen.
+func padded(coloured, plain string, width int) string {
+	if n := width - utf8.RuneCountInString(plain); n > 0 {
+		return coloured + strings.Repeat(" ", n)
+	}
+	return coloured + " "
+}
+
+// stringFormat shortens a long header name by keeping only the first letter of
+// every segment but the last, so "Access-Control-Allow-Origin" prints as
+// "ACA-Origin" and still fits the column.
 func stringFormat(word string) string {
+	words := strings.Split(word, "-")
+	if len(words) < 2 {
+		return word
+	}
 
 	var prefixBucket []string
-	words := strings.Split(word, "-")
-	for i, w := range words {
-		if i != len(words)-1 {
-			prefixBucket = append(prefixBucket, w[:1])
+	for _, w := range words[:len(words)-1] {
+		if w == "" {
+			continue
 		}
+		prefixBucket = append(prefixBucket, w[:1])
 	}
 	front := strings.Join(prefixBucket, "")
 	wordFormat := strings.Join([]string{front, words[len(words)-1]}, "-")
 
-	if len(wordFormat) > 14 {
-		stringFormat(wordFormat)
+	// Recurse only while the name is still getting shorter; a single long
+	// segment cannot be squeezed any further and would loop forever.
+	if len(wordFormat) > 14 && len(wordFormat) < len(word) {
+		return stringFormat(wordFormat)
 	}
 	return wordFormat
 }

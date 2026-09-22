@@ -11,11 +11,23 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/fatih/color"
-	"github.com/miekg/dns"
-	"github.com/tcnksm/go-httpstat"
+)
+
+// Port numbers used when -p is not given.
+const (
+	DefaultHTTPPort  = 80
+	DefaultHTTPSPort = 443
+)
+
+const (
+	defaultByteRange    = "bytes=0-1"
+	dialTimeout         = 10 * time.Second
+	keepAlive           = 30 * time.Second
+	tlsHandshakeTimeout = 10 * time.Second
 )
 
 // A structure with fields required for request options, range is fixed as byte=0-1 by default.
@@ -23,11 +35,12 @@ type ReqOptions struct {
 	Host          string `json:"domain-host"`
 	Authorization string `json:"authorization"`
 	Referer       string `json:"referer"`
-	ByteRange     string `json:"range"`
 	Port          int    `json:"port"`
-	Transport     http.Transport
-	AttackMode    bool `json:"attack-mode"`
-	RequestCount  int
+	AttackMode    bool   `json:"attack-mode"`
+
+	// requestCount is shared by every attack-mode worker, so it is only ever
+	// touched through atomic operations.
+	requestCount atomic.Int64
 }
 
 type Response struct {
@@ -127,15 +140,6 @@ type Address struct {
 	Target     string `json:"target"`
 }
 
-// Structure with response status code as field.
-type ResolveResponse struct {
-	respStatus string
-}
-
-func (rr ResolveResponse) getRespStatus() string {
-	return rr.respStatus
-}
-
 func (ro *ReqOptions) getAuthorization() string {
 	return ro.Authorization
 }
@@ -148,10 +152,6 @@ func (ro *ReqOptions) getReferer() string {
 	return ro.Referer
 }
 
-func (ro *ReqOptions) getRange() string {
-	return ro.ByteRange
-}
-
 func (ro *ReqOptions) getPort() int {
 	return ro.Port
 }
@@ -160,16 +160,17 @@ func (ro *ReqOptions) getAttackMode() bool {
 	return ro.AttackMode
 }
 
-func (ro *ReqOptions) getTransport() http.Transport {
-	return *ro.Transport.Clone()
+func (ro *ReqOptions) getRequestCount() int64 {
+	return ro.requestCount.Load()
 }
 
-func (ro *ReqOptions) getRequestCount() int {
-	return ro.RequestCount
+// IncRequestCount bumps the shared counter by one and returns the new value.
+func (ro *ReqOptions) IncRequestCount() int64 {
+	return ro.requestCount.Add(1)
 }
 
 func (ro *ReqOptions) GetRequestCount() string {
-	return strconv.Itoa(ro.RequestCount)
+	return strconv.FormatInt(ro.requestCount.Load(), 10)
 }
 
 func (addr Address) getIP() string {
@@ -188,37 +189,76 @@ func (addr Address) getTarget() string {
 	return addr.Target
 }
 
+// newHTTPTransport pins plain HTTP traffic to a single edge by proxying every
+// request through ip:port instead of whatever DNS hands back for the domain.
+func newHTTPTransport(domainName, ip string, port int) (*http.Transport, error) {
+	if port == 0 {
+		port = DefaultHTTPPort
+	}
+
+	proxyURL, err := url.Parse(fmt.Sprintf("http://%s:%d@%s:%d", domainName, port, ip, port))
+	if err != nil {
+		return nil, err
+	}
+
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   dialTimeout,
+			KeepAlive: keepAlive,
+		}).DialContext,
+		TLSHandshakeTimeout: tlsHandshakeTimeout,
+		Proxy:               http.ProxyURL(proxyURL),
+	}, nil
+}
+
+// SetTransport pins TLS traffic to a single edge: the request keeps the
+// original host name so SNI and the Host line stay intact, while every
+// connection is dialled against ip:port.
+func SetTransport(ip string, port int) *http.Transport {
+	if port == 0 {
+		port = DefaultHTTPSPort
+	}
+
+	dialer := &net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: keepAlive,
+		DualStack: true,
+	}
+
+	return &http.Transport{
+		TLSHandshakeTimeout: tlsHandshakeTimeout,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if ip != "" {
+				addr = net.JoinHostPort(ip, strconv.Itoa(port))
+			}
+			return dialer.DialContext(ctx, network, addr)
+		},
+		TLSClientConfig: &tls.Config{
+			// The point of the tool is to talk to an edge that does not serve
+			// a certificate for its own address, so verification stays off.
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS13,
+		},
+	}
+}
+
 // Applied when using HTTP protocol.
 func ResolveHTTP(addr *Address, opt *ReqOptions) error {
-
-	netURL := url.URL{}
-	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
-	urlProxy, err := netURL.Parse(ref)
+	transport, err := newHTTPTransport(addr.getDomainName(), addr.getIP(), opt.getPort())
 	if err != nil {
 		return err
 	}
+	client := &http.Client{Transport: transport}
+	defer client.CloseIdleConnections()
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout: 5 * time.Second,
-			}).Dial,
-			TLSHandshakeTimeout: 5 * time.Second,
-			Proxy:               http.ProxyURL(urlProxy),
-		},
-	}
-
-	urlDomain := fmt.Sprintf("http://%s", addr.Url)
-	req, err := http.NewRequest("GET", urlDomain, nil)
+	requestURL := fmt.Sprintf("http://%s", addr.getUrl())
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
-		panic(err)
+		return err
 	}
-
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
+	addRequestHeader(req, opt)
+	req, measured := traceRequest(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -226,194 +266,132 @@ func ResolveHTTP(addr *Address, opt *ReqOptions) error {
 	}
 	defer resp.Body.Close()
 
-	if !opt.getAttackMode() {
-		if addr.getTarget() != addr.getIP() {
-			fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
-		} else {
-			fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
-		}
-
-		// ips, _ := GetRecordIPv4(urlDomain)
-		latencyWrapper(urlDomain)
-
-		fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
-		setRequestHeader(resp)
-
-		res := &ResolveResponse{
-			respStatus: resp.Status,
-		}
-
-		fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
-		printStatusToColor(res.getRespStatus())
-
-		printResponse(resp)
-	} else {
-		fmt.Printf("\r%s: %v, %s: %d",
-			color.HiBlackString("Status Code"),
-			resp.StatusCode,
-			color.HiBlackString("Reqeust Count"),
-			opt.getRequestCount())
+	if opt.getAttackMode() {
+		printAttackProgress(resp.StatusCode, opt)
+		return nil
 	}
 
+	if err := measured.readBody(resp, io.Discard); err != nil {
+		return err
+	}
+
+	printExchange(addr, resp, requestURL, measured, "http")
 	return nil
 }
 
 // Applied when using HTTPS protocol.
 func ResolveHTTPS(addr *Address, opt *ReqOptions) error {
+	transport := SetTransport(addr.getIP(), opt.getPort())
+	client := &http.Client{Transport: transport}
+	defer client.CloseIdleConnections()
 
-	transport := SetTransport(addr.getUrl(), addr.getIP())
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
-
+	requestURL := fmt.Sprintf("https://%s", addr.getUrl())
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	addRequestHeader(req, opt)
+	req, measured := traceRequest(req)
 
-	client := &http.Client{Transport: &transport}
-
-	url := fmt.Sprintf("https://%s", addr.getUrl())
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		panic(err)
-	}
-
-	// request
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
-
-	// response
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	if !opt.getAttackMode() {
-		if addr.getTarget() != addr.getIP() {
-			fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
-		} else {
-			fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
-		}
-		latencyWrapper(url)
-
-		fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
-		setRequestHeader(resp)
-
-		res := &ResolveResponse{
-			respStatus: resp.Status,
-		}
-
-		fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
-		printStatusToColor(res.getRespStatus())
-		printResponse(resp)
-	} else {
-		fmt.Printf("\r%s: %v, %s: %d",
-			color.HiBlackString("Status Code"),
-			resp.StatusCode,
-			color.HiBlackString("Reqeust Count"),
-			opt.getRequestCount(),
-		)
+	if opt.getAttackMode() {
+		printAttackProgress(resp.StatusCode, opt)
+		return nil
 	}
 
+	if err := measured.readBody(resp, io.Discard); err != nil {
+		return err
+	}
+
+	printExchange(addr, resp, requestURL, measured, "https")
 	return nil
 }
 
-func SetTransport(domainName, ip string) http.Transport {
-
-	transport := http.Transport{
-		Dial: (&net.Dialer{
-			Timeout: 5 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
+// printExchange writes the one-edge report: which address answered, how long
+// each stage took, and the headers that went out and came back.
+func printExchange(addr *Address, resp *http.Response, requestURL string, measured *timing, protocol string) {
+	if addr.getTarget() != addr.getIP() {
+		fmt.Printf("\n%s - [%s]\n\n", color.HiYellowString(addr.getTarget()), color.HiYellowString(addr.getIP()))
+	} else {
+		fmt.Printf("\n[%s]\n\n", color.HiYellowString(addr.getTarget()))
 	}
 
-	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		DualStack: true,
-	}
-	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		if addr == fmt.Sprintf("%s:443", domainName) {
-			addr = fmt.Sprintf("%s:443", ip)
-		} else if ip != "" {
-			addr = fmt.Sprintf("%s:443", ip)
-		}
+	printLatency(requestURL, measured, protocol)
 
-		return dialer.DialContext(ctx, network, addr)
-	}
+	fmt.Printf("%s\n", color.HiWhiteString("Request Headers"))
+	setRequestHeader(resp)
 
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS11,
-		MaxVersion:         tls.VersionTLS13,
-	}
-
-	r := &ReqOptions{
-		Transport: *transport.Clone(),
-	}
-
-	return r.getTransport()
+	fmt.Printf("%s\n", color.HiWhiteString("Response Headers"))
+	printStatusToColor(resp.Status)
+	printResponse(resp)
 }
 
-func addRequestHeader(req *http.Request, host, referer, authorization string, attack bool) {
+func printAttackProgress(statusCode int, opt *ReqOptions) {
+	fmt.Printf("\r%s: %v, %s: %d",
+		color.HiBlackString("Status Code"),
+		statusCode,
+		color.HiBlackString("Request Count"),
+		opt.getRequestCount())
+}
 
-	if !attack {
-		req.Header.Add("Range", "bytes=0-1")
+// addRequestHeader mirrors the flags onto the outgoing request. Host has to go
+// on the request struct rather than the header map: net/http builds the Host
+// line from req.Host and drops any "Host" entry left in the map.
+func addRequestHeader(req *http.Request, opt *ReqOptions) {
+	if !opt.getAttackMode() {
+		req.Header.Set("Range", defaultByteRange)
 	}
 
-	if host != "" {
-		req.Header.Add("Host", host)
+	if host := opt.getHost(); host != "" {
+		req.Host = host
 	}
 
-	if referer != "" {
-		req.Header.Add("Referer", referer)
+	if referer := opt.getReferer(); referer != "" {
+		req.Header.Set("Referer", referer)
 	}
 
-	if authorization != "" {
-		req.Header.Add("Authorization", authorization)
+	if authorization := opt.getAuthorization(); authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 }
 
 func setRequestHeader(resp *http.Response) {
-	req := &ReqOptions{}
+	req := resp.Request
 
-	// optional [Host]
-	if len(resp.Request.Header.Values("Host")) > 0 {
-		req.Host = resp.Request.Header.Values("host")[0]
-		PrintFunc("Host", req.getHost())
+	// optional [Host] - only worth printing when it was overridden.
+	if req.Host != "" && req.Host != req.URL.Host {
+		PrintFunc("Host", req.Host)
 	}
 
 	// optional [Referer]
-	if len(resp.Request.Header.Values("referer")) > 0 {
-		req.Referer = resp.Request.Header.Values("referer")[0]
-		PrintFunc("Referer", req.getReferer())
+	if v := req.Header.Get("Referer"); v != "" {
+		PrintFunc("Referer", v)
 	}
 
 	// optional [Authorization]
-	if len(resp.Request.Header.Values("Authorization")) > 0 {
-		req.Authorization = resp.Request.Header.Values("Authorization")[0]
-		PrintFunc("Authorization", req.getAuthorization())
+	if v := req.Header.Get("Authorization"); v != "" {
+		PrintFunc("Authorization", v)
 	}
 
 	// required [Range]
-	if len(resp.Request.Header.Values("Range")) > 0 {
-		req.ByteRange = resp.Request.Header.Values("range")[0]
-		PrintFunc("Range", req.getRange())
+	if v := req.Header.Get("Range"); v != "" {
+		PrintFunc("Range", v)
 	}
 	fmt.Println()
 }
 
 func printResponse(resp *http.Response) {
 	for directive, value := range resp.Header {
-		length := len(directive)
-		if length > 14 {
-			word := stringFormat(directive)
-			PrintFunc(word, value[0])
-		} else if length < 8 {
-			PrintFunc(directive, value[0])
+		if len(value) == 0 {
+			continue
+		}
+		if len(directive) > 14 {
+			PrintFunc(stringFormat(directive), value[0])
 		} else {
 			PrintFunc(directive, value[0])
 		}
@@ -421,48 +399,11 @@ func printResponse(resp *http.Response) {
 	fmt.Println()
 }
 
-func GetStatusCodeOnHTTPS(addr *Address, opt *ReqOptions) *Response {
-
-	response := &Response{}
-	transport := SetTransport(addr.getUrl(), addr.getIP())
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:443", addr.getDomainName()), transport.TLSClientConfig)
-	if err != nil {
-		response.Error = err
-		return response
-	}
-	defer conn.Close()
-
-	client := &http.Client{Transport: &transport}
-	url := fmt.Sprintf("https://%s", addr.getUrl())
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		response.Error = err
-		return response
-	}
-
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
-
-	latencyTermuiWrapper(url)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		response.Error = err
-		return response
-	}
-	defer resp.Body.Close()
-
-	// Get Contents Hash
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, resp.Body); err != nil {
-		response.Error = err
-		return response
-	}
-	sum := hasher.Sum(nil)
-
-	response = &Response{
+// newResponse snapshots the headers the dashboard compares. sum is the digest
+// of the body, which is what tells two edges serving different bytes for the
+// same URL apart.
+func newResponse(resp *http.Response, edgeIP string, sum []byte) *Response {
+	return &Response{
 		StatusCode:    resp.StatusCode,
 		Server:        resp.Header.Get("Server"),
 		Date:          resp.Header.Get("Date"),
@@ -475,109 +416,66 @@ func GetStatusCodeOnHTTPS(addr *Address, opt *ReqOptions) *Response {
 		ContentLength: resp.Header.Get("Content-Length"),
 		ACAOrigin:     resp.Header.Get("Access-Control-Allow-Origin"),
 		Via:           resp.Header.Get("Via"),
-		EdgeIP:        addr.getIP(),
+		EdgeIP:        edgeIP,
 		Hash:          sum,
-		Error:         nil,
+	}
+}
+
+func GetStatusCodeOnHTTPS(addr *Address, opt *ReqOptions) *Response {
+	transport := SetTransport(addr.getIP(), opt.getPort())
+	client := &http.Client{Transport: transport}
+	defer client.CloseIdleConnections()
+
+	requestURL := fmt.Sprintf("https://%s", addr.getUrl())
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return &Response{Error: err}
+	}
+	addRequestHeader(req, opt)
+	req, measured := traceRequest(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return &Response{Error: err}
+	}
+	defer resp.Body.Close()
+
+	hasher := sha256.New()
+	if err := measured.readBody(resp, hasher); err != nil {
+		return &Response{Error: err}
 	}
 
-	return response
+	showLatencyDashBoard(measured, "https")
+	return newResponse(resp, addr.getIP(), hasher.Sum(nil))
 }
 
 func GetStatusCodeOnHTTP(addr *Address, opt *ReqOptions) *Response {
-	response := &Response{}
-
-	netURL := url.URL{}
-	ref := fmt.Sprintf("http://%s:%v@%s:%v", addr.getDomainName(), opt.getPort(), addr.getIP(), opt.getPort())
-	urlProxy, err := netURL.Parse(ref)
+	transport, err := newHTTPTransport(addr.getDomainName(), addr.getIP(), opt.getPort())
 	if err != nil {
-		response.Error = err
-		return response
+		return &Response{Error: err}
 	}
+	client := &http.Client{Transport: transport}
+	defer client.CloseIdleConnections()
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout: 5 * time.Second,
-			}).Dial,
-			TLSHandshakeTimeout: 5 * time.Second,
-			Proxy:               http.ProxyURL(urlProxy),
-		},
-	}
-
-	urlDomain := fmt.Sprintf("http://%s", addr.Url)
-	req, err := http.NewRequest("GET", urlDomain, nil)
+	requestURL := fmt.Sprintf("http://%s", addr.getUrl())
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
-		response.Error = err
-		return response
+		return &Response{Error: err}
 	}
-
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-
-	addRequestHeader(req, opt.getHost(), opt.getReferer(), opt.getAuthorization(), opt.getAttackMode())
+	addRequestHeader(req, opt)
+	req, measured := traceRequest(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		response.Error = err
-		return response
+		return &Response{Error: err}
 	}
 	defer resp.Body.Close()
 
-	latencyTermuiWrapper(urlDomain)
-
-	// Get Contents Hash
 	hasher := sha256.New()
-	if _, err := io.Copy(hasher, resp.Body); err != nil {
-		response.Error = err
-		return response
-	}
-	sum := hasher.Sum(nil)
-
-	response = &Response{
-		StatusCode:    resp.StatusCode,
-		Server:        resp.Header.Get("Server"),
-		Date:          resp.Header.Get("Date"),
-		LastModified:  resp.Header.Get("Last-Modified"),
-		Etag:          resp.Header.Get("Etag"),
-		Age:           resp.Header.Get("Age"),
-		Expires:       resp.Header.Get("Expires"),
-		CacheControl:  resp.Header.Get("Cache-Control"),
-		ContentType:   resp.Header.Get("Content-Type"),
-		ContentLength: resp.Header.Get("Content-Length"),
-		ACAOrigin:     resp.Header.Get("Access-Control-Allow-Origin"),
-		Via:           resp.Header.Get("Via"),
-		EdgeIP:        addr.getIP(),
-		Hash:          sum,
-		Error:         nil,
+	if err := measured.readBody(resp, hasher); err != nil {
+		return &Response{Error: err}
 	}
 
-	return response
-}
-
-func QueryDnsRecord() ([]string, error) {
-	name := "ns.cdn.cloudn.co.kr"
-	server := "8.8.8.8"
-
-	c := dns.Client{}
-	m := dns.Msg{}
-	m.SetQuestion(dns.Fqdn(name), dns.TypeA)
-
-	r, _, err := c.Exchange(&m, server+":53")
-	if err != nil {
-		return nil, err
-	}
-
-	if len(r.Answer) < 1 {
-		return nil, fmt.Errorf("not find a record")
-	}
-
-	var result []string
-	for _, ans := range r.Answer {
-		if a, ok := ans.(*dns.A); ok {
-			result = append(result, string(a.A))
-		}
-	}
-
-	return result, nil
+	showLatencyDashBoard(measured, "http")
+	return newResponse(resp, addr.getIP(), hasher.Sum(nil))
 }

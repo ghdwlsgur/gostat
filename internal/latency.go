@@ -2,15 +2,13 @@ package internal
 
 import (
 	"fmt"
-	"net"
+	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/fatih/color"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
-	"github.com/sirupsen/logrus"
 	"github.com/tcnksm/go-httpstat"
 )
 
@@ -20,263 +18,142 @@ type Result struct {
 	Latency int
 }
 
-// Terminal ================================================================
-
-func printHttpStatus(url string, result *httpstat.Result, resultC chan<- Result) {
-	var latency time.Duration
-
-	fmt.Println(color.HiWhiteString("Latency Status"))
-	latency += result.DNSLookup
-	printStatusFormat(color.HiWhiteString("DNS Lookup"), color.HiGreenString(result.DNSLookup.String()), color.HiMagentaString(latency.String()))
-	latency += result.TCPConnection
-	printStatusFormat(color.HiWhiteString("TCP Connection"), color.HiGreenString(result.TCPConnection.String()), color.HiMagentaString(latency.String()))
-	latency += result.Connect
-	printStatusFormat(color.HiWhiteString("Connect"), color.HiGreenString(result.Connect.String()), color.HiMagentaString(latency.String()))
-	latency += result.ServerProcessing
-	printStatusFormat(color.HiWhiteString("ServerProcessing"), color.HiGreenString(result.ServerProcessing.String()), color.HiMagentaString(latency.String()))
-
-	resultC <- Result{url, int(latency / time.Millisecond)}
+// timing measures the one request the tool was asked to make, rather than a
+// second plainer request alongside it.
+//
+// go-httpstat fills in the phases up to the first response byte. Its Total and
+// ContentTransfer accessors read timestamps that the go1.8+ tracer never sets,
+// so those two are taken from the clock here instead.
+type timing struct {
+	stat            httpstat.Result
+	start           time.Time
+	contentTransfer time.Duration
+	total           time.Duration
 }
 
-func printHttpsStatus(url string, result *httpstat.Result, resultC chan<- Result) {
-	var latency time.Duration
-
-	fmt.Println(color.HiWhiteString("Latency Status"))
-	latency += result.DNSLookup
-	printStatusFormat(color.HiWhiteString("DNS Lookup"), color.HiGreenString(result.DNSLookup.String()), color.HiMagentaString(latency.String()))
-	latency += result.TCPConnection
-	printStatusFormat(color.HiWhiteString("TCP Connection"), color.HiGreenString(result.TCPConnection.String()), color.HiMagentaString(latency.String()))
-	latency += result.TLSHandshake
-	printStatusFormat(color.HiWhiteString("TLS Handshake"), color.HiGreenString(result.TLSHandshake.String()), color.HiMagentaString(latency.String()))
-	latency += result.Connect
-	printStatusFormat(color.HiWhiteString("Connect"), color.HiGreenString(result.Connect.String()), color.HiMagentaString(latency.String()))
-	latency += result.ServerProcessing
-	printStatusFormat(color.HiWhiteString("ServerProcessing"), color.HiGreenString(result.ServerProcessing.String()), color.HiMagentaString(latency.String()))
-
-	resultC <- Result{url, int(latency / time.Millisecond)}
+// traceRequest attaches the tracer to req and hands back the measurement that
+// will collect it.
+func traceRequest(req *http.Request) (*http.Request, *timing) {
+	t := &timing{start: time.Now()}
+	return req.WithContext(httpstat.WithHTTPStat(req.Context(), &t.stat)), t
 }
 
-func latencyWrapper(url string) {
-	results := make(chan Result)
-	doneC := make(chan struct{})
-
-	go GatherLatencies(url, results, doneC)
-
-	for r := range results {
-		latency := fmt.Sprintf("%dms", r.Latency)
-		fmt.Printf("\t%s\t\t\t\t\t\t%s\n\n", color.HiWhiteString("Total"), color.HiMagentaString(latency))
-	}
-}
-
-// The latency response value is obtained through a channel.
-func GatherLatencies(url string, results chan<- Result, doneC <-chan struct{}) {
-	resultC := make(chan Result)
-	go getLatencies(url, resultC)
-	for {
-		select {
-		case r, ok := <-resultC:
-			if !ok {
-				close(results)
-				return
-			}
-			results <- r
-		case <-doneC:
-			return
-		}
-	}
-}
-
-func getLatencies(url string, resultC chan<- Result) error {
-	var result *httpstat.Result
-	var err error
-
-	result, err = getHTTPLatency(url)
-	if err != nil {
+// readBody drains the response into sink and closes the measurement: the
+// transfer is not over until the last byte lands. Pass io.Discard when the
+// content itself is not needed.
+func (t *timing) readBody(resp *http.Response, sink io.Writer) error {
+	transferStart := time.Now()
+	if _, err := io.Copy(sink, resp.Body); err != nil {
 		return err
 	}
 
-	protocol := strings.Split(url, "://")[0]
-	if protocol == "http" {
-		printHttpStatus(url, result, resultC)
-	}
-	if protocol == "https" {
-		printHttpsStatus(url, result, resultC)
-	}
+	t.contentTransfer = time.Since(transferStart)
+	t.total = time.Since(t.start)
+	t.stat.End(time.Now())
 
-	close(resultC)
 	return nil
 }
 
-func getHTTPLatency(url string) (*httpstat.Result, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"error": err,
-			"url":   url,
-		}).Error("Failed to create")
-		return nil, err
+// stages lists what to show, in order. Every duration here is the length of
+// one phase; go-httpstat's Connect, Pretransfer and StartTransfer are running
+// totals from the start of the request, and adding those to a sum is what used
+// to make the printed total count DNS and TCP twice.
+func (t *timing) stages(protocol string) [][2]string {
+	stages := [][2]string{
+		{"DNS Lookup", t.stat.DNSLookup.String()},
+		{"TCP Connection", t.stat.TCPConnection.String()},
 	}
 
-	var result httpstat.Result
-	ctx := httpstat.WithHTTPStat(req.Context(), &result)
-	req = req.WithContext(ctx)
-
-	client := new(http.Client)
-	defer client.CloseIdleConnections()
-
-	client.Transport = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+	if protocol == "https" {
+		stages = append(stages, [2]string{"TLS Handshake", t.stat.TLSHandshake.String()})
 	}
 
-	res, err := client.Do(req)
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"error": err,
-			"url":   url,
-		}).Error("Failed to send a HTTP request")
-		return nil, err
+	return append(stages, [2]string{"Server Processing", t.stat.ServerProcessing.String()})
+}
+
+// Terminal ================================================================
+
+// printLatency writes the stage-by-stage breakdown, with a running total in
+// the right-hand column, and returns what it printed.
+func printLatency(url string, t *timing, protocol string) Result {
+	fmt.Println(color.HiWhiteString("Latency Status"))
+
+	var elapsed time.Duration
+	stage := func(name string, d time.Duration) {
+		elapsed += d
+		printStatusFormat(name, d.String(), elapsed.String())
 	}
 
-	result.End(time.Now())
-	defer res.Body.Close()
-	return &result, nil
+	stage("DNS Lookup", t.stat.DNSLookup)
+	stage("TCP Connection", t.stat.TCPConnection)
+	if protocol == "https" {
+		stage("TLS Handshake", t.stat.TLSHandshake)
+	}
+	stage("Server Processing", t.stat.ServerProcessing)
+	stage("Content Transfer", t.contentTransfer)
+
+	result := Result{URL: url, Latency: int(t.total / time.Millisecond)}
+	printStatusTotal(fmt.Sprintf("%dms", result.Latency))
+
+	return result
 }
 
 // DashBoard ================================================================
 
-func latencyTermuiWrapper(url string) {
-	results := make(chan Result)
-	doneC := make(chan struct{})
-
-	go GatherLatenciesOnDashBoard(url, results, doneC)
-}
-
-func GatherLatenciesOnDashBoard(url string, results chan<- Result, doneC <-chan struct{}) {
-	resultC := make(chan Result)
-	go getLatenciesOnDashBoard(url, resultC)
-	for {
-		select {
-		case r, ok := <-resultC:
-			if !ok {
-				close(results)
-				return
-			}
-			results <- r
-		case <-doneC:
-			return
-		}
-	}
-}
-
-func getLatenciesOnDashBoard(url string, resultC chan<- Result) error {
-	var result *httpstat.Result
-	var err error
-
-	result, err = getHTTPLatency(url)
-	if err != nil {
-		return err
-	}
-
-	protocol := strings.Split(url, "://")[0]
-	showLatencyDashBoard(result, protocol)
-
-	close(resultC)
-	return nil
-}
-
-func showLatencyDashBoard(result *httpstat.Result, protocol string) {
+func showLatencyDashBoard(t *timing, protocol string) {
 	latencyTable := createLatencyTable(protocol)
+	if latencyTable == nil {
+		return
+	}
 
-	latencyTable = getLatencyData(result, latencyTable, protocol)
-	ui.Render(latencyTable)
+	ui.Render(getLatencyData(t, latencyTable, protocol))
 }
 
 func createLatencyTable(protocol string) *widgets.Table {
-	latencyTable := widgets.NewTable()
+	var labels []string
+	var bottom int
+
 	switch protocol {
 	case "http":
-		latencyTable.Rows = [][]string{
-			make([]string, 2),
-			make([]string, 2),
-			make([]string, 2),
-			make([]string, 2),
-		}
-		latencyTable.Title = "Latency"
-		latencyTable.BorderStyle.Fg = 7
-		latencyTable.BorderStyle.Bg = 0
-		latencyTable.TitleStyle.Fg = 7
-		latencyTable.TitleStyle.Bg = 0
-		latencyTable.TextStyle = ui.NewStyle(ui.ColorWhite)
-		latencyTable.TextStyle.Bg = 0
-		latencyTable.SetRect(0, 30, 85, 39)
-
-		latencyTable.Rows[0][0] = "DNS Lookup"
-		latencyTable.Rows[1][0] = "TCP Connection"
-		latencyTable.Rows[2][0] = "Server Processing"
-		latencyTable.Rows[3][0] = "Content Transfer"
+		labels = []string{"DNS Lookup", "TCP Connection", "Server Processing", "Total"}
+		bottom = 39
 	case "https":
-		latencyTable.Rows = [][]string{
-			make([]string, 2),
-			make([]string, 2),
-			make([]string, 2),
-			make([]string, 2),
-			make([]string, 2),
-		}
-		latencyTable.Title = "Latency"
-		latencyTable.BorderStyle.Fg = 7
-		latencyTable.BorderStyle.Bg = 0
-		latencyTable.TitleStyle.Fg = 7
-		latencyTable.TitleStyle.Bg = 0
-		latencyTable.TextStyle = ui.NewStyle(ui.ColorWhite)
-		latencyTable.TextStyle.Bg = 0
-		latencyTable.SetRect(0, 30, 85, 41)
-
-		latencyTable.Rows[0][0] = "DNS Lookup"
-		latencyTable.Rows[1][0] = "TCP Connection"
-		latencyTable.Rows[2][0] = "TLS Handshake"
-		latencyTable.Rows[3][0] = "Server Processing"
-		latencyTable.Rows[4][0] = "Content Transfer"
+		labels = []string{"DNS Lookup", "TCP Connection", "TLS Handshake", "Server Processing", "Total"}
+		bottom = 41
+	default:
+		return nil
 	}
+
+	latencyTable := widgets.NewTable()
+	latencyTable.Rows = make([][]string, len(labels))
+	for i, label := range labels {
+		latencyTable.Rows[i] = make([]string, 2)
+		latencyTable.Rows[i][0] = label
+	}
+
+	latencyTable.Title = "Latency"
+	latencyTable.BorderStyle.Fg = 7
+	latencyTable.BorderStyle.Bg = 0
+	latencyTable.TitleStyle.Fg = 7
+	latencyTable.TitleStyle.Bg = 0
+	latencyTable.TextStyle = ui.NewStyle(ui.ColorWhite)
+	latencyTable.TextStyle.Bg = 0
+	latencyTable.SetRect(0, 30, 85, bottom)
+
 	return latencyTable
 }
 
-func getLatencyData(result *httpstat.Result, latencyTable *widgets.Table, protocol string) *widgets.Table {
-	dnsChan, tcpChan, tlsChan, serverChan, rttChan := make(chan string), make(chan string), make(chan string), make(chan string), make(chan string)
-
-	sendAfterDelay := func(ch chan<- string, value string) {
-		<-time.After(500 * time.Millisecond)
-		ch <- value
+func getLatencyData(t *timing, latencyTable *widgets.Table, protocol string) *widgets.Table {
+	for i, stage := range t.stages(protocol) {
+		latencyTable.Rows[i][0] = stage[0]
+		latencyTable.Rows[i][1] = stage[1]
 	}
 
-	go sendAfterDelay(dnsChan, result.DNSLookup.String())
-	go sendAfterDelay(tcpChan, result.TCPConnection.String())
-	if protocol == "https" {
-		go sendAfterDelay(tlsChan, result.TLSHandshake.String())
-	}
-	go sendAfterDelay(serverChan, result.ServerProcessing.String())
-	go sendAfterDelay(rttChan, result.Total(time.Now()).String())
-
-	latencyTable.Rows[0][1] = <-dnsChan
-	latencyTable.Rows[1][1] = <-tcpChan
-
-	if protocol == "http" {
-		total := result.DNSLookup + result.TCPConnection + result.ServerProcessing
-		latencyTable.Rows[2][1] = <-serverChan
-		latencyTable.Rows[3][1] = total.String()
-	} else if protocol == "https" {
-		total := result.DNSLookup + result.TCPConnection + result.TLSHandshake + result.ServerProcessing
-		latencyTable.Rows[2][1] = <-tlsChan
-		latencyTable.Rows[3][1] = <-serverChan
-		latencyTable.Rows[4][1] = total.String()
-	}
+	// The last row used to be labelled "Content Transfer" while holding the
+	// sum of every phase; it is the total, so it says so.
+	last := len(latencyTable.Rows) - 1
+	latencyTable.Rows[last][0] = "Total"
+	latencyTable.Rows[last][1] = t.total.String()
 
 	return latencyTable
 }
