@@ -9,13 +9,7 @@ CURRENT=$(pwd)
 
 function test
 {
-    go test -v $(go list ./... | grep -v vendor) --count 1 -race -coverprofile="$CURRENT"/coverage.txt -covermode=atomic
-}
-
-function test_with_circleci
-{
-    export CIRCLECI="true"
-    go test -v $(go list ./... | grep -v vendor) --count 1 -race -coverprofile="$CURRENT"/coverage.txt -covermode=atomic
+    go test ./... --count 1 -race -covermode=atomic -coverprofile="$CURRENT"/coverage.txt
 }
 
 function release

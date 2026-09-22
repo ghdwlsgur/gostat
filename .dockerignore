@@ -2,7 +2,6 @@
 # difference between sending a few hundred kilobytes and the whole history.
 .git
 .github
-.circleci
 dist
 gopath
 vendor

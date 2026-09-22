@@ -1,23 +1,22 @@
 <div align="center">
 
 <br>
-<br>
 
-<img width="50%" alt="govpn-logo" src="https://user-images.githubusercontent.com/77400522/204132452-9c0182e1-860f-4c79-87f9-a18c68e2de53.png">
+<img width="50%" alt="gostat logo" src="https://user-images.githubusercontent.com/77400522/204132452-9c0182e1-860f-4c79-87f9-a18c68e2de53.png">
 
-![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/ghdwlsgur/gostat?color=success&label=version&sort=semver)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ghdwlsgur/gostat)](https://goreportcard.com/report/github.com/ghdwlsgur/gostat)
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/4d8e0ef64d1348c19d0ccbae23290eb7)](https://www.codacy.com/gh/ghdwlsgur/gostat/dashboard?utm_source=github.com&utm_medium=referral&utm_content=ghdwlsgur/gostat&utm_campaign=Badge_Grade)
-[![Maintainability](https://api.codeclimate.com/v1/badges/1d8e562559047191efd8/maintainability)](https://codeclimate.com/github/ghdwlsgur/gostat/maintainability)
-[![circle ci](https://circleci.com/gh/ghdwlsgur/gostat.svg?style=svg)](https://circleci.com/gh/ghdwlsgur/gostat)
+[![version](https://img.shields.io/github/v/tag/ghdwlsgur/gostat?color=success&label=version&sort=semver)](https://github.com/ghdwlsgur/gostat/releases)
+[![CI](https://github.com/ghdwlsgur/gostat/actions/workflows/ci.yml/badge.svg)](https://github.com/ghdwlsgur/gostat/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/ghdwlsgur/gostat?color=success)](./LICENSE)
 
 </div>
 
 # Overview
 
-This is an interactive CLI tool that uses the net/http package to make an HTTP GET request to a specific URL and checks the latency step by step. It also displays brief information on request and response headers.
+`gostat` sends an HTTP GET to a URL and shows what came back: the response headers, and where the request spent its time.
 
-**_It can be useful for testing purposes before transferring to a CNAME record of a domain that uses a CDN domain._**
+The part that makes it more than `curl -I` is `-t`. Point it at one address and the request goes **there** while still carrying the host name the URL asked for, so a CDN edge routes it exactly as it would route real traffic. Walk every A record of a domain that way and you can see which edge is stale, which one is serving a different object, and which one is slow.
+
+**_Useful before pointing a CNAME at a CDN, and for telling one edge apart from the rest afterwards._**
 
 <div align="center">
 
@@ -31,17 +30,21 @@ gostat request https://ghdwlsgur.github.io/ -d
 
 # Why
 
-The motivation for creating this tool was that while using the curl command to inspect HTTP GET responses, I found that the options I used became increasingly varied, and the command itself became longer. Personally, I had customized the command with the options I frequently used along with request headers in my zshrc script. However, instead of using this method, I wanted to create a tool with fixed options and request header values that I typically use. I wanted to create a tool that could be useful for others who may have similar concerns or team members who could benefit from it.
+While inspecting HTTP GET responses with `curl`, the option list kept growing and the command kept getting longer. I had it aliased in my zshrc with the headers I always send. Rather than keep pasting that around, I wanted a tool that already knows those options, in case anyone else has the same problem.
+
+```bash
+# what the alias looked like
+curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223.130.195.95' 'https://www.naver.com/include/themecast/targetAndPanels.json'
+
+# what it looks like now
+gostat request https://www.naver.com/include/themecast/targetAndPanels.json -t 223.130.195.95
+```
 
 [Korean Document](https://ghdwlsgur.github.io/docs)
 
-```bash
-curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223. 130.195.95' 'https://www.naver.com/include/themecast/targetAndPanels.json'
-```
-
 # Installation
 
-### Mac
+### macOS
 
 ```bash
 # [install]
@@ -49,20 +52,26 @@ $ brew tap ghdwlsgur/gostat
 $ brew install gostat
 
 # [upgrade]
-$ brew update --verbose
+$ brew update
 $ brew upgrade gostat
 ```
 
 ### Linux
 
 ```bash
-# [install]
-$ wget https://github.com/ghdwlsgur/gostat/releases/download/v1.2.6/gostat_1.2.6_Linux_`uname -m`.tar.gz
-$ tar -xzvf ./gostat_1.2.6_Linux_`uname -m`.tar.gz
+$ VERSION=1.2.6
+
+# [install] x86_64
+$ curl -fsSL https://github.com/ghdwlsgur/gostat/releases/download/v${VERSION}/gostat_${VERSION}_Linux_x86_64.tar.gz | tar -xz
+
+# [install] arm64
+$ curl -fsSL https://github.com/ghdwlsgur/gostat/releases/download/v${VERSION}/gostat_${VERSION}_Linux_arm64.tar.gz | tar -xz
 
 # [execute]
-./gostat request https://ghdwlsgur.github.io -d
+$ ./gostat request https://ghdwlsgur.github.io/
 ```
+
+The [releases page](https://github.com/ghdwlsgur/gostat/releases) has the current version and the Windows builds.
 
 ### Container
 
@@ -71,9 +80,80 @@ Published to GitHub Packages for `linux/amd64` and `linux/arm64`.
 ```bash
 $ docker run --rm ghcr.io/ghdwlsgur/gostat request https://ghdwlsgur.github.io/
 
-# The dashboard needs a terminal, so give the container one.
+# The dashboard draws a terminal UI, so the container needs a terminal.
 $ docker run --rm -it ghcr.io/ghdwlsgur/gostat request https://ghdwlsgur.github.io/ -d
 ```
+
+### From source
+
+```bash
+$ go install github.com/ghdwlsgur/gostat@latest
+```
+
+# Usage
+
+```
+gostat request <url> [flags]
+```
+
+| Flag | Short | What it does |
+| --- | --- | --- |
+| `--target` | `-t` | Address or domain to send the request to instead of resolving the URL. Every A record behind it is probed in turn. |
+| `--port` | `-p` | Port to connect to. Defaults to 80 for http and 443 for https. |
+| `--host` | `-H` | Host header to send, without changing where the request goes. |
+| `--referer` | `-r` | Referer header to send. |
+| `--authorization` | `-A` | Authorization header to send. |
+| `--dashboard` | `-d` | Draw the live dashboard instead of printing once. |
+| `--attack` | `-a` | Keep requesting in a loop, printing only the status code. |
+| `--thread` | `-n` | How many workers `-a` runs. |
+
+```bash
+# the URL's own A records
+$ gostat request https://www.naver.com
+
+# one domain's A records, asking for a URL on another host
+$ gostat request https://www.naver.com -t naver.com
+
+# one specific edge
+$ gostat request https://www.naver.com -t 223.130.200.104
+
+# an edge that routes on the Host header
+$ gostat request https://www.naver.com -t 223.130.200.104 -H www.naver.com
+
+# a referer-protected object
+$ gostat request https://www.naver.com/asset.js -t naver.com -r http://naver.com
+```
+
+Press `q` or `ctrl-c` to leave the dashboard.
+
+# Reading the output
+
+```
+Latency Status
+	DNS Lookup          0s              0s
+	TCP Connection      324.125µs       324.125µs
+	TLS Handshake       1.142417ms      1.466542ms
+	Server Processing   21.104625ms     22.571167ms
+	Content Transfer    69.916µs        22.641083ms
+	Total                               22.901ms
+```
+
+The middle column is how long that phase took on its own. The right column is the running total, so the last phase is the sum of everything above it. `Total` is measured separately, from just before the request goes out until the last body byte, so it also covers whatever happens between the phases.
+
+`DNS Lookup` reads `0s` whenever `-t` gave an address to dial: there was no lookup to make, and inventing a number would be worse than reporting none. If a connection came out of the keep-alive pool, the connection phases did not run at all and the report says so rather than leaving three zeros to be misread.
+
+Below the timings are the headers that were sent and the headers that came back, sorted so two runs of the same command can be diffed, followed by the size and SHA-256 of the body. With the default `Range: bytes=0-1` that digest covers two bytes rather than the whole object, which is enough to notice an edge whose content has changed.
+
+# How it works
+
+The request goes out exactly as written. Only the address it is dialled against is replaced, which is what `curl --resolve` does, so the Host line and the TLS SNI still carry the original name.
+
+A few things follow from that:
+
+- **Redirects are not followed.** A 301 from this edge is the answer, not something to chase. Following one would report another host's headers and mix a second connection's timings into the measurement.
+- **Certificates are not verified.** An edge holds no certificate for its own address, and checking the chain is not what this tool is for.
+- **HTTP/2 is negotiated** where the edge offers it, and the protocol that was actually used is reported.
+- **`Range: bytes=0-1` is sent** by default, so a large object is not pulled down just to read its headers. `-a` drops it, because load testing should ask for what a real client would get.
 
 # Compare
 
@@ -89,7 +169,7 @@ $ docker run --rm -it ghcr.io/ghdwlsgur/gostat request https://ghdwlsgur.github.
 gostat request https://example.com/test.txt -t 1.1.1.1
 ```
 
-The gostat command does not make a request to the host IP of example.com, but rather maps it to `1.1.1.1` in the `/etc/hosts` file and then queries DNS for the host IP. This allows you to check the response code and response headers for the HTTP GET method request.
+Instead of editing `/etc/hosts` and remembering to undo it, `gostat` dials `1.1.1.1` for this one request. Nothing on the machine changes, and two edges can be compared side by side in the same shell.
 
 #### curl
 
@@ -115,53 +195,23 @@ curl -vo /dev/null -H 'Range:bytes=0-1' --resolve 'naver.com:443:223.130.195.95'
 gostat request https://www.naver.com/include/themecast/targetAndPanels.json -t 223.130.195.95
 ```
 
-If you primarily use the `HTTP GET method`, `gostat` may be more intuitive and convenient to use than the `curl` command, which behaves in the same way.
+If HTTP GET is most of what you reach for `curl` to do, `gostat` says the same thing in fewer characters and reads the timings back for you.
 
-# How to use
-
-**_Simple_**
+# Development
 
 ```bash
-gostat request [URL]
-
-# Example
-gostat request https://www.naver.com
+$ go test ./... -race        # the suite runs against httptest, never the network
+$ go vet ./...
+$ bash scripts/deploy.sh release_test   # a full release, built locally, published nowhere
 ```
 
-**_Target (domain / ip)_**
-
-```bash
-gostat request [URL] -t [Target(domain or ip)]
-
-# Example
-gostat request https://www.naver.com -t naver.com
-gostat request https://www.naver.com -t 223.130.200.104
-```
-
-**_Request Header (Referer)_**
-
-```bash
-gostat request [URL] -t [Target] -r [Referer]
-
-# Example
-gostat request https://www.naver.com -t naver.com -r http://naver.com
-```
-
-**_Request Header (Host)_**
-
-```bash
-gostat request [URL] -t [Target] -H [Host]
-
-# Example
-gostat request https://www.naver.com -H naver.com
-```
-
-**_Request Header (Authorization)_**
-
-```bash
-gostat request [URL] -A [Authorization]
-```
+| Package | What lives there |
+| --- | --- |
+| `cmd` | Flags, and wiring the pieces below together |
+| `internal/probe` | Sending and measuring one request. Prints nothing |
+| `internal/report` | Rendering a result to a writer |
+| `internal/dashboard` | Drawing a result with termui |
 
 # License
 
-gostat is licensed under the [MIT](https://github.com/ghdwlsgur/gostat/blob/master/LICENSE)
+`gostat` is licensed under the [MIT License](./LICENSE).

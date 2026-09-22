@@ -42,14 +42,14 @@ func newRequestCommand() *cobra.Command {
 	}
 
 	f := cmd.Flags()
-	f.StringVarP(&flags.target, "target", "t", "", "[optional] Address or domain to send the request to instead of resolving the url.")
-	f.IntVarP(&flags.port, "port", "p", 0, "[optional] Port to connect to (default 80 for http, 443 for https).")
-	f.IntVarP(&flags.threads, "thread", "n", 1, "[optional] choose thread numbers")
-	f.StringVarP(&flags.host, "host", "H", "", "[optional] The host to put in the request headers.")
-	f.StringVarP(&flags.authorization, "authorization", "A", "", "[optional] Authorization header to send.")
-	f.StringVarP(&flags.referer, "referer", "r", "", "[optional] Referer header to send.")
-	f.BoolVarP(&flags.attack, "attack", "a", false, "[optional] enable attack mode")
-	f.BoolVarP(&flags.dashboard, "dashboard", "d", false, "[optional] enable dashboard")
+	f.StringVarP(&flags.target, "target", "t", "", "Address or domain to send the request to instead of resolving the url. Every A record behind it is probed in turn.")
+	f.IntVarP(&flags.port, "port", "p", 0, "Port to connect to (default 80 for http, 443 for https)")
+	f.StringVarP(&flags.host, "host", "H", "", "Host header to send, without changing where the request goes")
+	f.StringVarP(&flags.referer, "referer", "r", "", "Referer header to send")
+	f.StringVarP(&flags.authorization, "authorization", "A", "", "Authorization header to send")
+	f.BoolVarP(&flags.dashboard, "dashboard", "d", false, "Draw the live dashboard instead of printing once")
+	f.BoolVarP(&flags.attack, "attack", "a", false, "Keep requesting in a loop, printing only the status code")
+	f.IntVarP(&flags.threads, "thread", "n", 1, "How many workers attack mode runs")
 
 	return cmd
 }
