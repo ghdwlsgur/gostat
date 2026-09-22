@@ -156,6 +156,11 @@ come back, the digest of the body right now, and how often each has moved. An
 origin that stamps a request id into its output changes its digest on every
 request, so that row counts the changes rather than listing them.
 
+The response table takes the arrow keys, since it is the one panel that can be
+wider than the terminal. Its header row and address column stay put while the
+rest scrolls, so a column brought into view still says what it is and which
+edge it belongs to.
+
 Press `q` or `ctrl-c` to leave. The view lays itself out to the terminal it is
 in: a wide window shows a longer run of history, and a narrow one falls back to
 short phase names rather than truncating them.

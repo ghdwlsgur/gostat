@@ -25,7 +25,7 @@ func layout(d *Dashboard, edges int, subtitle string) tview.Primitive {
 		AddItem(d.latency, 0, 1, false)
 
 	help := tview.NewTextView().SetDynamicColors(true)
-	help.SetText(fmt.Sprintf("[white]%s  [gray]· press q to quit", subtitle))
+	help.SetText(fmt.Sprintf("[white]%s  [gray]· ←/→ scroll the table · q to quit", subtitle))
 
 	return tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(top, 0, 3, false).

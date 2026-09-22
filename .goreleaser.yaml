@@ -81,6 +81,10 @@ homebrew_casks:
     # installing the cask both ways. goreleaser's own hooks field still emits
     # the `postflight` block that Homebrew 7 deprecated, so the replacement
     # stanza is written out here instead.
+    #
+    # goreleaser/goreleaser#6870 tracks it and #6873 is the fix, due in v2.19.
+    # Once that lands this block becomes a `postflight_steps` hook and can go.
+    # CI runs `goreleaser check` against the latest release, so it will say so.
     custom_block: |
       postflight_steps do
         run "/usr/bin/xattr",
