@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -180,14 +181,62 @@ func (c *edgeChart) drawLegend(screen tcell.Screen, x, y, width int) {
 	at := x
 	for _, name := range legendOrder {
 		style := phaseStyle[name]
-		if at+len(style.short)+2 > x+width {
+		at = legendEntry(screen, at, y, x+width, barRune, style.color, style.short)
+		if at < 0 {
 			return
 		}
-
-		screen.SetContent(at, y, barRune, nil, tcell.StyleDefault.Foreground(style.color))
-		tview.Print(screen, style.short, at+1, y, len(style.short), tview.AlignLeft, tcell.ColorGray)
-		at += len(style.short) + 2
 	}
+
+	// The strip is coloured by status class, which nothing else on screen
+	// explains. Only the classes actually seen are named, so the legend
+	// growing is itself the signal that something started answering
+	// differently.
+	at++
+	for _, class := range c.classesSeen() {
+		at = legendEntry(screen, at, y, x+width, sparkRunes[len(sparkRunes)-1], statusColor(class*100), fmt.Sprintf("%dxx", class))
+		if at < 0 {
+			return
+		}
+	}
+}
+
+// legendEntry draws one swatch and its label, returning where the next one
+// starts or -1 when there was no room for this one.
+func legendEntry(screen tcell.Screen, at, y, limit int, swatch rune, color tcell.Color, label string) int {
+	if at+len(label)+2 > limit {
+		return -1
+	}
+
+	screen.SetContent(at, y, swatch, nil, tcell.StyleDefault.Foreground(color))
+	tview.Print(screen, label, at+1, y, len(label), tview.AlignLeft, tcell.ColorGray)
+
+	return at + len(label) + 2
+}
+
+// classesSeen lists the status classes the run has turned up, in order.
+func (c *edgeChart) classesSeen() []int {
+	var classes []int
+	for _, edge := range c.edges {
+		for _, s := range c.samples[edge] {
+			class := s.statusCode / 100
+			if !contains(classes, class) {
+				classes = append(classes, class)
+			}
+		}
+	}
+	sort.Ints(classes)
+
+	return classes
+}
+
+func contains(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+
+	return false
 }
 
 // split divides the room left over after the label and the total between the

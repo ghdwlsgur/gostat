@@ -354,3 +354,66 @@ func TestChartDrawsOneRowPerEdge(t *testing.T) {
 		t.Errorf("%d rows carry bar cells, want %d edges plus the legend", drawn, len(c.edges)+1)
 	}
 }
+
+// The strip is coloured by status class and nothing else on screen says so.
+// Naming only the classes actually seen keeps the legend short and makes it
+// grow exactly when something starts answering differently.
+func TestChartLegendNamesTheStatusClassesSeen(t *testing.T) {
+	c := newEdgeChart([]string{"1.1.1.1"})
+	c.record("1.1.1.1", http.StatusOK, traceOfTotal(time.Second))
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("screen.Init: %v", err)
+	}
+	screen.SetSize(100, 10)
+	c.SetRect(0, 0, 100, 10)
+	c.Draw(screen)
+	screen.Show()
+
+	read := func() string {
+		cells, w, h := screen.GetContents()
+		var b strings.Builder
+		for i := 0; i < w*h; i++ {
+			if len(cells[i].Runes) > 0 {
+				b.WriteRune(cells[i].Runes[0])
+			}
+		}
+		return b.String()
+	}
+
+	text := read()
+	if !strings.Contains(text, "2xx") {
+		t.Errorf("the legend does not name the 2xx it has seen:\n%s", text)
+	}
+	if strings.Contains(text, "5xx") {
+		t.Errorf("the legend names a class that never happened:\n%s", text)
+	}
+
+	c.record("1.1.1.1", http.StatusServiceUnavailable, traceOfTotal(time.Second))
+	c.Draw(screen)
+	screen.Show()
+
+	if text := read(); !strings.Contains(text, "5xx") {
+		t.Errorf("the legend did not pick up the 503:\n%s", text)
+	}
+}
+
+func TestClassesSeenAreSortedAndDistinct(t *testing.T) {
+	c := newEdgeChart([]string{"1.1.1.1", "2.2.2.2"})
+	c.record("2.2.2.2", http.StatusServiceUnavailable, traceOfTotal(time.Second))
+	c.record("1.1.1.1", http.StatusOK, traceOfTotal(time.Second))
+	c.record("1.1.1.1", http.StatusOK, traceOfTotal(time.Second))
+	c.record("2.2.2.2", http.StatusNotFound, traceOfTotal(time.Second))
+
+	want := []int{2, 4, 5}
+	got := c.classesSeen()
+	if len(got) != len(want) {
+		t.Fatalf("classesSeen() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("classesSeen()[%d] = %d, want %d", i, got[i], want[i])
+		}
+	}
+}

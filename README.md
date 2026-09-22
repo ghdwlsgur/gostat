@@ -142,6 +142,11 @@ Underneath, the latency panel takes the last request apart phase by phase, each
 bar as wide as the share of the request that phase took, in the same colours. A
 request that spends 21ms of its 22ms waiting on the server says so at a glance.
 
+The legend names only the status classes the run has actually turned up, so it
+growing from `2xx` to `2xx 5xx` is itself the signal that something started
+answering differently. The Changes panel keeps the distinct status codes,
+bodies and the moment the status last changed.
+
 Press `q` or `ctrl-c` to leave. The view lays itself out to the terminal it is
 in: a wide window shows a longer run of history, a narrow one drops the
 sparkline before it shortens the bar and falls back to short phase names rather

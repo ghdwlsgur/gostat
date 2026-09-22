@@ -4,10 +4,8 @@ package dashboard
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -34,9 +32,7 @@ type Dashboard struct {
 	chart         *edgeChart
 	responseTable *tview.Table
 	latency       *latencyPanel
-	statusSeen    *seen
-	changedAt     *seen
-	hashSeen      *seen
+	changes       *changesPanel
 }
 
 // Run takes over the terminal until q or ctrl-c, probing every edge in turn.
@@ -79,9 +75,7 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 		chart:         newEdgeChart(edges),
 		responseTable: newResponseTable(edges),
 		latency:       newLatencyPanel(),
-		statusSeen:    newSeen("StatusCode"),
-		changedAt:     newSeen("Time"),
-		hashSeen:      newSeen("Hash"),
+		changes:       newChangesPanel(),
 	}
 
 	d.app.SetRoot(layout(d, u.String()), true)
@@ -125,63 +119,14 @@ func (d *Dashboard) record(index int, edge string, res *probe.Result) {
 	d.chart.record(edge, res.StatusCode, res.Trace)
 
 	for row, spec := range responseRows {
-		d.responseTable.GetCell(row+1, index+1).SetText(spec.value(res))
+		cell := d.responseTable.GetCell(row+1, index+1).SetText(spec.value(res))
+		if spec.color != nil {
+			cell.SetTextColor(spec.color(res))
+		}
 	}
 	d.responseTable.GetCell(requestCountRow(), index+1).
 		SetText(strconv.FormatInt(d.requests, 10))
 
 	d.latency.set(res.Trace)
-
-	// A status not seen before is worth a timestamp; the same one repeating
-	// is not.
-	if d.statusSeen.add(strconv.Itoa(res.StatusCode)) {
-		d.changedAt.add(report.SeoulTime(res.Header("Date")))
-	}
-	d.hashSeen.add(shortHash(res.BodySum))
-}
-
-// seen is the ordered set of distinct values a field has taken, shown as a
-// one-line history strip.
-type seen struct {
-	title  string
-	values []string
-	view   *tview.TextView
-}
-
-func newSeen(title string) *seen {
-	s := &seen{title: title, view: newHistoryView(title)}
-	s.sync()
-
-	return s
-}
-
-// add records value and reports whether it had not been seen before.
-func (s *seen) add(value string) bool {
-	for _, existing := range s.values {
-		if existing == value {
-			return false
-		}
-	}
-
-	s.values = append(s.values, value)
-	s.sync()
-
-	return true
-}
-
-func (s *seen) sync() {
-	if len(s.values) == 0 {
-		s.view.SetText(fmt.Sprintf("[gray]no %s yet", strings.ToLower(s.title)))
-		return
-	}
-
-	s.view.SetText(strings.Join(s.values, "   "))
-}
-
-// list returns the values recorded so far, as a copy.
-func (s *seen) list() []string {
-	out := make([]string, len(s.values))
-	copy(out, s.values)
-
-	return out
+	d.changes.record(res.StatusCode, shortHash(res.BodySum), report.SeoulTime(res.Header("Date")))
 }

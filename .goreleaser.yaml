@@ -68,7 +68,7 @@ homebrew_casks:
     binaries:
       - gostat
     homepage: "https://github.com/ghdwlsgur/gostat"
-    description: "HTTP GET to a domain's A records or a pinned edge IP, with response headers and per-stage latency"
+    description: "Send an HTTP GET request to a domain's A record or a pinned edge IP, and measure the response headers and latency at each stage"
     license: "MIT"
     repository:
       owner: ghdwlsgur
