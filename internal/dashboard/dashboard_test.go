@@ -475,3 +475,24 @@ func TestArrowKeysScrollTheResponseTable(t *testing.T) {
 	}
 	waitForOffset(t, d.app, d.responseTable, func(column int) bool { return column == 0 })
 }
+
+// A panel given a share of the leftover can be squeezed until a row falls off
+// the bottom, silently. That is how the request counter went missing once, and
+// how the body digest went missing from a 20-row terminal.
+func TestEveryPanelKeepsItsRowsOnAShortTerminal(t *testing.T) {
+	for _, height := range []int{20, 22, 24, 30} {
+		out := render(t, 150, height, []string{"1.1.1.1", "2.2.2.2"})
+
+		for _, want := range []string{"Status", "Body"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%d rows lose the Changes %q row:\n%s", height, want, out)
+			}
+		}
+		// Both edges, and the counter that lives in the title.
+		for _, want := range []string{"1.1.1.1", "2.2.2.2", "requests"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%d rows lose %q:\n%s", height, want, out)
+			}
+		}
+	}
+}

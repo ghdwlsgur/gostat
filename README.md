@@ -20,7 +20,7 @@ The part that makes it more than `curl -I` is `-t`. Point it at one address and 
 
 <div align="center">
 
-![overview](https://github.com/ghdwlsgur/gostat/assets/77400522/0661f993-9cda-4382-9fe3-b54bfa5b57ad)
+![the dashboard, probing the four A records behind ghdwlsgur.github.io](./docs/dashboard.png)
 
 ```bash
 gostat request https://ghdwlsgur.github.io/ -d
