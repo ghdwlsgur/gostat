@@ -136,8 +136,7 @@ func TestRendersOnALargeTerminal(t *testing.T) {
 	out := render(t, 200, 60, []string{"1.1.1.1", "2.2.2.2"})
 
 	for _, want := range []string{
-		"Response", "Latency per edge", "Latency",
-		"StatusCode History", "Time History", "Hash History",
+		"Response", "Latency per edge", "Latency", "Changes",
 		"1.1.1.1", "2.2.2.2", "206", "cdn", "HTTP/2.0",
 	} {
 		if !strings.Contains(out, want) {
@@ -225,44 +224,6 @@ func TestRecordFillsTheRowAndTheCounter(t *testing.T) {
 	}
 	if got := d.responseTable.GetCell(requestCountRow(), 1).Text; got != "2" {
 		t.Errorf("RequestCount cell = %q, want 2", got)
-	}
-}
-
-func TestSeenKeepsDistinctValuesInOrder(t *testing.T) {
-	s := newSeen("StatusCode")
-
-	if !s.add("200") {
-		t.Error("the first value was not reported as new")
-	}
-	if s.add("200") {
-		t.Error("a repeated value was reported as new")
-	}
-	s.add("404")
-
-	want := []string{"200", "404"}
-	got := s.list()
-	if len(got) != len(want) {
-		t.Fatalf("history = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("history[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-
-	if !strings.Contains(s.view.GetText(true), "404") {
-		t.Errorf("the strip does not show the new value: %q", s.view.GetText(true))
-	}
-}
-
-func TestSeenHandsOutACopy(t *testing.T) {
-	s := newSeen("Hash")
-	s.add("abc")
-
-	s.list()[0] = "tampered"
-
-	if s.list()[0] != "abc" {
-		t.Error("list shares its backing array with the set")
 	}
 }
 

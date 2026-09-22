@@ -19,9 +19,12 @@ const (
 	// Panel heights, in lines, borders included. Everything else is given a
 	// share of whatever is left, so the view fits the terminal it is in
 	// rather than demanding a particular size.
+
 	// Five phases, the total, the reused note, and the borders.
 	latencyHeight = 9
-	historyHeight = 3
+
+	// Status, body and the timestamp, plus the borders.
+	changesHeight = 5
 )
 
 // responseRows drives the response table. Keeping a label next to the value it
@@ -30,22 +33,29 @@ const (
 var responseRows = []struct {
 	label string
 	value func(*probe.Result) string
+	// color paints the cell when the value is worth spotting rather than
+	// reading. A nil one leaves the row in the default colour.
+	color func(*probe.Result) tcell.Color
 }{
-	{"StatusCode", func(r *probe.Result) string { return strconv.Itoa(r.StatusCode) }},
-	{"Proto", func(r *probe.Result) string { return r.Proto }},
-	{"Server", header("Server")},
-	{"Date", header("Date")},
-	{"Last-Modified", header("Last-Modified")},
-	{"ETag", header("ETag")},
-	{"Age", header("Age")},
-	{"Expires", header("Expires")},
-	{"Cache-Control", header("Cache-Control")},
-	{"Content-Type", header("Content-Type")},
-	{"Content-Length", header("Content-Length")},
-	{"ACA-Origin", header("Access-Control-Allow-Origin")},
-	{"Via", header("Via")},
-	{"Hash", func(r *probe.Result) string { return shortHash(r.BodySum) }},
-	{"Total", func(r *probe.Result) string { return r.Trace.Total.String() }},
+	{
+		label: "StatusCode",
+		value: func(r *probe.Result) string { return strconv.Itoa(r.StatusCode) },
+		color: func(r *probe.Result) tcell.Color { return statusColor(r.StatusCode) },
+	},
+	{label: "Proto", value: func(r *probe.Result) string { return r.Proto }},
+	{label: "Server", value: header("Server")},
+	{label: "Date", value: header("Date")},
+	{label: "Last-Modified", value: header("Last-Modified")},
+	{label: "ETag", value: header("ETag")},
+	{label: "Age", value: header("Age")},
+	{label: "Expires", value: header("Expires")},
+	{label: "Cache-Control", value: header("Cache-Control")},
+	{label: "Content-Type", value: header("Content-Type")},
+	{label: "Content-Length", value: header("Content-Length")},
+	{label: "ACA-Origin", value: header("Access-Control-Allow-Origin")},
+	{label: "Via", value: header("Via")},
+	{label: "Hash", value: func(r *probe.Result) string { return shortHash(r.BodySum) }},
+	{label: "Total", value: func(r *probe.Result) string { return r.Trace.Total.String() }},
 }
 
 func header(name string) func(*probe.Result) string {
@@ -136,13 +146,6 @@ func requestCountRow() int {
 	return len(responseRows) + 1
 }
 
-func newHistoryView(title string) *tview.TextView {
-	view := tview.NewTextView().SetDynamicColors(true)
-	view.SetBorder(true).SetTitle(fmt.Sprintf(" %s History ", title))
-
-	return view
-}
-
 // layout arranges the panels so every one of them gets a share of the terminal
 // rather than a fixed rectangle. The old view was pinned to coordinates that
 // needed 180 by 43; anything smaller drew an empty box and no data at all.
@@ -153,9 +156,7 @@ func layout(d *Dashboard, subtitle string) tview.Primitive {
 
 	right := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(d.responseTable, 0, 1, false).
-		AddItem(d.statusSeen.view, historyHeight, 0, false).
-		AddItem(d.changedAt.view, historyHeight, 0, false).
-		AddItem(d.hashSeen.view, historyHeight, 0, false)
+		AddItem(d.changes, changesHeight, 0, false)
 
 	body := tview.NewFlex().
 		AddItem(left, 0, 2, false).
