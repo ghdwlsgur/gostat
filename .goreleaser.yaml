@@ -76,11 +76,14 @@ homebrew_casks:
     commit_author:
       name: ghdwlsgur
       email: vjinhyeokv@gmail.com
-    hooks:
-      post:
-        # A downloaded binary carries the quarantine attribute, and Gatekeeper
-        # refuses to run it until the attribute is cleared.
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/gostat"]
-          end
+    # Without this the binary keeps the quarantine attribute it inherited from
+    # the downloaded archive and Gatekeeper refuses to run it - verified by
+    # installing the cask both ways. goreleaser's own hooks field still emits
+    # the `postflight` block that Homebrew 7 deprecated, so the replacement
+    # stanza is written out here instead.
+    custom_block: |
+      postflight_steps do
+        run "/usr/bin/xattr",
+            args: ["-dr", "com.apple.quarantine", "{{ `{{staged_path}}` }}/gostat"],
+            must_succeed: false
+      end

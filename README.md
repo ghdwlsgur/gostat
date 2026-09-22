@@ -49,11 +49,19 @@ gostat request https://www.naver.com/include/themecast/targetAndPanels.json -t 2
 ```bash
 # [install]
 $ brew tap ghdwlsgur/gostat
-$ brew install gostat
+$ brew install --cask gostat
 
 # [upgrade]
 $ brew update
-$ brew upgrade gostat
+$ brew upgrade --cask gostat
+```
+
+Installed before v1.3.0? It was a formula then and is a cask now, and
+`brew upgrade` will not move you across on its own:
+
+```bash
+$ brew uninstall --formula gostat
+$ brew install --cask gostat
 ```
 
 ### Linux
