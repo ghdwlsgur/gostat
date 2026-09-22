@@ -132,7 +132,15 @@ $ gostat request https://www.naver.com -t 223.130.200.104 -H www.naver.com
 $ gostat request https://www.naver.com/asset.js -t naver.com -r http://naver.com
 ```
 
-Press `q` or `ctrl-c` to leave the dashboard. It lays itself out to the terminal it is in, so a narrow window scrolls the response table rather than hiding it.
+`-d` draws a live view instead of printing once. Each edge gets a row showing
+its recent requests as a sparkline — height is how long the request took, colour
+is the status class — followed by a bar whose coloured segments are the phases
+of the last one, scaled against the slowest edge on screen. So a slow edge has a
+long bar, and the colour says which phase made it slow.
+
+Press `q` or `ctrl-c` to leave. The view lays itself out to the terminal it is
+in: a wide window shows a longer run of history, a narrow one drops the
+sparkline before it shortens the bar.
 
 # Reading the output
 

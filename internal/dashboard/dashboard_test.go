@@ -81,9 +81,10 @@ func screenText(screen tcell.SimulationScreen) string {
 	return b.String()
 }
 
-// render draws the dashboard onto a simulation screen of the given size and
-// returns what a terminal would show.
-func render(t *testing.T, width, height int, edges []string) string {
+// renderScreen draws the dashboard onto a simulation screen of the given size
+// and hands the screen back, along with the call that shuts the application
+// down again.
+func renderScreen(t *testing.T, width, height int, edges []string) (tcell.SimulationScreen, func()) {
 	t.Helper()
 
 	screen := tcell.NewSimulationScreen("UTF-8")
@@ -101,14 +102,22 @@ func render(t *testing.T, width, height int, edges []string) string {
 		}
 	})
 
-	out := screenText(screen)
-
-	d.app.Stop()
-	if err := <-stopped; err != nil {
-		t.Fatalf("app.Run: %v", err)
+	return screen, func() {
+		d.app.Stop()
+		if err := <-stopped; err != nil {
+			t.Errorf("app.Run: %v", err)
+		}
 	}
+}
 
-	return out
+// render returns what a terminal of the given size would show.
+func render(t *testing.T, width, height int, edges []string) string {
+	t.Helper()
+
+	screen, stop := renderScreen(t, width, height, edges)
+	defer stop()
+
+	return screenText(screen)
 }
 
 // The view this replaced was pinned to coordinates that needed 180 by 43. On
@@ -127,7 +136,7 @@ func TestRendersOnALargeTerminal(t *testing.T) {
 	out := render(t, 200, 60, []string{"1.1.1.1", "2.2.2.2"})
 
 	for _, want := range []string{
-		"Response", "Status per edge", "Latency",
+		"Response", "Latency per edge", "Latency",
 		"StatusCode History", "Time History", "Hash History",
 		"1.1.1.1", "2.2.2.2", "206", "cdn", "HTTP/2.0",
 	} {
@@ -216,35 +225,6 @@ func TestRecordFillsTheRowAndTheCounter(t *testing.T) {
 	}
 	if got := d.responseTable.GetCell(requestCountRow(), 1).Text; got != "2" {
 		t.Errorf("RequestCount cell = %q, want 2", got)
-	}
-}
-
-// The strip keeps the last few codes; without a cap it would grow until it ran
-// off the side of the panel.
-func TestRecentStatusesAreCapped(t *testing.T) {
-	d := testDashboard(t, []string{"1.1.1.1"})
-
-	for i := 0; i < recentStatuses+5; i++ {
-		d.recordStatus(0, "1.1.1.1", http.StatusOK)
-	}
-
-	if got := len(d.recent["1.1.1.1"]); got != recentStatuses {
-		t.Errorf("kept %d statuses, want %d", got, recentStatuses)
-	}
-	if got := d.statusTable.GetColumnCount(); got != recentStatuses+1 {
-		t.Errorf("strip is %d columns wide, want %d", got, recentStatuses+1)
-	}
-}
-
-func TestRecentStatusesAreColouredByClass(t *testing.T) {
-	d := testDashboard(t, []string{"1.1.1.1"})
-	d.recordStatus(0, "1.1.1.1", http.StatusServiceUnavailable)
-
-	// SetTextColor writes into Style; Color is the legacy field and stays
-	// at its default.
-	fg, _, _ := d.statusTable.GetCell(0, 1).Style.Decompose()
-	if fg != tcell.ColorRed {
-		t.Errorf("a 503 is drawn in %v, want red", fg)
 	}
 }
 
