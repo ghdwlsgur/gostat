@@ -1,11 +1,63 @@
 package dashboard
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	"github.com/ghdwlsgur/gostat/internal/probe"
 )
+
+// phaseStyle gives each phase its colour and the short name a narrow column
+// falls back to. The order is the order Trace.Phases reports them in.
+var phaseStyle = map[string]struct {
+	color tcell.Color
+	short string
+}{
+	"DNS Lookup":        {tcell.ColorBlue, "DNS"},
+	"TCP Connection":    {tcell.ColorAqua, "TCP"},
+	"TLS Handshake":     {tcell.ColorFuchsia, "TLS"},
+	"Server Processing": {tcell.ColorYellow, "Srv"},
+	"Content Transfer":  {tcell.ColorGreen, "Xfer"},
+}
+
+var legendOrder = []string{"DNS Lookup", "TCP Connection", "TLS Handshake", "Server Processing", "Content Transfer"}
+
+// scaleCells turns a duration into a number of cells, rounding up so a phase
+// that took measurable time never disappears from the bar.
+func scaleCells(d, of time.Duration, width int) int {
+	if d <= 0 || of <= 0 || width <= 0 {
+		return 0
+	}
+
+	cells := int(float64(d) / float64(of) * float64(width))
+	if cells == 0 {
+		cells = 1
+	}
+
+	return cells
+}
+
+// compactDuration keeps a duration inside its column. Three significant
+// figures is as much as a bar can justify; the exact number is in the
+// response table.
+func compactDuration(d time.Duration) string {
+	switch {
+	case d <= 0:
+		// A phase that did not happen reads better as 0s than as 0ns.
+		return "0s"
+	case d >= time.Second:
+		return fmt.Sprintf("%.2fs", d.Seconds())
+	case d >= time.Millisecond:
+		return fmt.Sprintf("%.1fms", float64(d)/float64(time.Millisecond))
+	case d >= time.Microsecond:
+		return fmt.Sprintf("%.0fµs", float64(d)/float64(time.Microsecond))
+	default:
+		return fmt.Sprintf("%dns", d.Nanoseconds())
+	}
+}
 
 const (
 	// latencyLabelWidth fits the longest phase name, "Server Processing".
@@ -92,6 +144,18 @@ func (p *latencyPanel) draw(screen tcell.Screen, x, y, width, height int) (int, 
 	// not happen again", not "took no time".
 	if p.trace.Reused && row < ih {
 		tview.Print(screen, "connection reused", ix, iy+row, iw, tview.AlignLeft, tcell.ColorGray)
+		row++
+	}
+
+	// The bars are the only thing naming these colours, so the legend goes
+	// with them rather than beside the status strip.
+	if row < ih {
+		at := ix
+		for _, name := range legendOrder {
+			if at = legendEntry(screen, at, iy+row, ix+iw, phaseStyle[name].color, phaseStyle[name].short); at < 0 {
+				break
+			}
+		}
 	}
 
 	return ix, iy, iw, ih

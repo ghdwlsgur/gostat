@@ -136,7 +136,7 @@ func TestRendersOnALargeTerminal(t *testing.T) {
 	out := render(t, 200, 60, []string{"1.1.1.1", "2.2.2.2"})
 
 	for _, want := range []string{
-		"Response", "Latency per edge", "Latency", "Changes",
+		"Response", "Status per edge", "Latency", "Changes",
 		"1.1.1.1", "2.2.2.2", "206", "cdn", "HTTP/2.0",
 	} {
 		if !strings.Contains(out, want) {

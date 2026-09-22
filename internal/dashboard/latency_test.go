@@ -10,6 +10,20 @@ import (
 	"github.com/ghdwlsgur/gostat/internal/probe"
 )
 
+// httpsTrace is an ordinary TLS request, with Content Transfer as the phase
+// that took the longest.
+func httpsTrace(total time.Duration) probe.Trace {
+	return probe.Trace{
+		DNSLookup:        1 * time.Millisecond,
+		TCPConnection:    10 * time.Millisecond,
+		TLSHandshake:     100 * time.Millisecond,
+		ServerProcessing: 1 * time.Second,
+		ContentTransfer:  2 * time.Second,
+		Total:            total,
+		TLS:              true,
+	}
+}
+
 // serverBoundTrace is a request where the server is what took the time, so
 // there is an unambiguous phase to point at.
 func serverBoundTrace() probe.Trace {
@@ -199,5 +213,74 @@ func TestLatencyPanelUsesShortNamesWhenNarrow(t *testing.T) {
 	}
 	if bars[4] != widest || widest < minBarWidth {
 		t.Errorf("the dominant phase drew %d cells of a widest %d:\n%s", bars[4], widest, text)
+	}
+}
+
+// A Duration's own string is long enough to be truncated by the column, and a
+// number missing its leading digits reads as a different number.
+func TestCompactDuration(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{23782667 * time.Nanosecond, "23.8ms"},
+		{1500 * time.Millisecond, "1.50s"},
+		{436083 * time.Nanosecond, "436µs"},
+		{900 * time.Nanosecond, "900ns"},
+		// A phase that did not happen, such as DNS when an address was dialled.
+		{0, "0s"},
+	}
+
+	for _, tt := range tests {
+		got := compactDuration(tt.d)
+		if got != tt.want {
+			t.Errorf("compactDuration(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+		if len(got)+1 > totalWidth {
+			t.Errorf("compactDuration(%v) = %q, too wide for the %d-wide column", tt.d, got, totalWidth)
+		}
+	}
+}
+
+func TestScaleCells(t *testing.T) {
+	tests := []struct {
+		name  string
+		d     time.Duration
+		of    time.Duration
+		width int
+		want  int
+	}{
+		{"half of the whole fills half the bar", 500 * time.Millisecond, time.Second, 20, 10},
+		{"the whole fills the bar", time.Second, time.Second, 20, 20},
+		// A phase that took measurable time has to stay visible, or a fast
+		// DNS lookup silently vanishes from the breakdown.
+		{"a tiny phase still gets a cell", time.Microsecond, time.Second, 20, 1},
+		{"nothing takes no cells", 0, time.Second, 20, 0},
+		{"no reference takes no cells", time.Second, 0, 20, 0},
+		{"no room takes no cells", time.Second, time.Second, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := scaleCells(tt.d, tt.of, tt.width); got != tt.want {
+				t.Errorf("scaleCells(%v, %v, %d) = %d, want %d", tt.d, tt.of, tt.width, got, tt.want)
+			}
+		})
+	}
+}
+
+// Every phase the trace reports has to have a colour, or a segment is silently
+// dropped from the bar.
+func TestEveryPhaseHasAStyle(t *testing.T) {
+	for _, phase := range httpsTrace(time.Second).Phases() {
+		if _, ok := phaseStyle[phase.Name]; !ok {
+			t.Errorf("phase %q has no colour, so it would not be drawn", phase.Name)
+		}
+	}
+
+	for _, name := range legendOrder {
+		if _, ok := phaseStyle[name]; !ok {
+			t.Errorf("legend names %q, which has no colour", name)
+		}
 	}
 }
