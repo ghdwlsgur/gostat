@@ -75,8 +75,12 @@ func (p *changesPanel) recordFailure(edge, at string) {
 }
 
 // digest describes what the edges are saying now: the shared value when they
-// agree, and how many differ when they do not.
-func (p *changesPanel) digest(m map[string]*tracked) string {
+// agree, and how many distinct ones there are when they do not.
+//
+// The count is of values, not of edges. Four edges answering A, A, B, B are
+// four edges and two bodies, and saying "2 edges differ" of them named the
+// wrong thing with the right number.
+func (p *changesPanel) digest(m map[string]*tracked, noun string) string {
 	var values seen
 	for _, t := range m {
 		if t.current != "" {
@@ -90,7 +94,7 @@ func (p *changesPanel) digest(m map[string]*tracked) string {
 	case 1:
 		return list[0]
 	default:
-		return fmt.Sprintf("%d edges differ", len(list))
+		return fmt.Sprintf("%d distinct %s", len(list), noun)
 	}
 }
 
@@ -111,7 +115,7 @@ func moves(m map[string]*tracked) tracked {
 func (p *changesPanel) sync() {
 	p.SetText(strings.Join([]string{
 		row("Status", colored(p.codes.list(), statusTag), moves(p.status)),
-		row("Body", colored([]string{p.digest(p.body)}, func(string) string { return "white" }), moves(p.body)),
+		row("Body", colored([]string{p.digest(p.body, "bodies")}, func(string) string { return "white" }), moves(p.body)),
 	}, "\n"))
 }
 

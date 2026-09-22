@@ -197,7 +197,7 @@ func TestChangesDoesNotCountSteadyEdgesAsChanging(t *testing.T) {
 
 	// They disagree, and the panel says so rather than picking one.
 	text := p.GetText(true)
-	if !strings.Contains(text, "2 edges differ") {
+	if !strings.Contains(text, "2 distinct bodies") {
 		t.Errorf("the panel does not report the disagreement:\n%s", text)
 	}
 	for _, digest := range []string{"aaa", "bbb"} {
@@ -230,5 +230,49 @@ func TestChangesRecordsAFailure(t *testing.T) {
 	}
 	if got := p.status["1.1.1.1"].changes; got != 1 {
 		t.Errorf("the failure counted as %d changes, want 1", got)
+	}
+}
+
+// The count is of values, not of edges. Four edges answering A, A, B, B are
+// four edges and two bodies; reporting "2 edges differ" put the right number
+// against the wrong noun, and reporting four would be wrong the other way.
+func TestChangesCountsDistinctBodiesNotEdges(t *testing.T) {
+	p := newChangesPanel()
+
+	for edge, body := range map[string]string{
+		"1.1.1.1": "aaa",
+		"2.2.2.2": "aaa",
+		"3.3.3.3": "bbb",
+		"4.4.4.4": "bbb",
+	} {
+		p.record(edge, 200, body, "2026-09-22 10:00:00")
+	}
+
+	text := p.GetText(true)
+	if !strings.Contains(text, "2 distinct bodies") {
+		t.Errorf("four edges serving two bodies are not reported as two:\n%s", text)
+	}
+	for _, wrong := range []string{"4 distinct", "2 edges", "4 edges"} {
+		if strings.Contains(text, wrong) {
+			t.Errorf("the panel says %q:\n%s", wrong, text)
+		}
+	}
+}
+
+func TestDigestNamesWhatItCounts(t *testing.T) {
+	p := newChangesPanel()
+
+	if got := p.digest(map[string]*tracked{}, "bodies"); got != "" {
+		t.Errorf("digest of nothing = %q, want empty", got)
+	}
+
+	agreed := map[string]*tracked{"a": {current: "x"}, "b": {current: "x"}}
+	if got := p.digest(agreed, "bodies"); got != "x" {
+		t.Errorf("digest of an agreement = %q, want the shared value", got)
+	}
+
+	split := map[string]*tracked{"a": {current: "x"}, "b": {current: "y"}, "c": {current: "z"}}
+	if got := p.digest(split, "bodies"); got != "3 distinct bodies" {
+		t.Errorf("digest of a split = %q, want the count and the noun", got)
 	}
 }
