@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"encoding/base64"
-	"fmt"
 	"sort"
 	"strconv"
 
@@ -10,17 +8,6 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/ghdwlsgur/gostat/internal/probe"
-)
-
-const (
-	// hashPrefix is how much of the body digest a cell shows. A column has no
-	// room for all 44 base64 characters, and 12 of them still pin the content.
-	hashPrefix = 12
-
-	// latencyHeight is five phases, the total, the reused note, the legend,
-	// and the borders. Everything else is given a share of whatever is left,
-	// so the view fits the terminal it is in rather than demanding a size.
-	latencyHeight = 10
 )
 
 // responseFields are the columns the response table can carry. Keeping a label
@@ -59,55 +46,6 @@ var responseFields = []struct {
 
 func header(name string) func(*probe.Result) string {
 	return func(r *probe.Result) string { return r.Header(name) }
-}
-
-// shortHash renders a body digest short enough for a table cell.
-func shortHash(sum []byte) string {
-	if len(sum) == 0 {
-		return ""
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(sum)
-	if len(encoded) > hashPrefix {
-		return encoded[:hashPrefix]
-	}
-	return encoded
-}
-
-// statusColor maps a status class onto the colour it is shown in.
-func statusColor(statusCode int) tcell.Color {
-	switch statusCode / 100 {
-	case 2:
-		return tcell.ColorGreen
-	case 3:
-		return tcell.ColorBlue
-	case 4:
-		return tcell.ColorYellow
-	case 5:
-		return tcell.ColorRed
-	default:
-		return tcell.ColorWhite
-	}
-}
-
-func newTable(title string) *tview.Table {
-	table := tview.NewTable()
-	table.SetBorder(true).SetTitle(fmt.Sprintf(" %s ", title))
-
-	return table
-}
-
-func labelCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).
-		SetTextColor(tcell.ColorWhite).
-		SetAttributes(tcell.AttrBold).
-		SetSelectable(false)
-}
-
-func valueCell(text string) *tview.TableCell {
-	return tview.NewTableCell(text).
-		SetTextColor(tcell.ColorDefault).
-		SetSelectable(false)
 }
 
 // newResponseTable is filled in by fillResponseTable once there is something
@@ -178,27 +116,4 @@ func fillResponseTable(table *tview.Table, edges []string, latest map[string]*pr
 			table.SetCell(row+1, column+1, cell)
 		}
 	}
-}
-
-// layout stacks the panels so each gets a share of the terminal rather than a
-// fixed rectangle. The old view was pinned to coordinates that needed 180 by
-// 43; anything smaller drew an empty box and no data at all.
-//
-// The response table spans the full width because it is the widest thing on
-// screen. It is exactly as tall as its rows, and whatever is left over is
-// shared between the panels above and below rather than left to pool in one of
-// them, which reads as an abandoned box.
-func layout(d *Dashboard, edges int, subtitle string) tview.Primitive {
-	top := tview.NewFlex().
-		AddItem(d.chart, 0, 1, false).
-		AddItem(d.latency, 0, 1, false)
-
-	help := tview.NewTextView().SetDynamicColors(true)
-	help.SetText(fmt.Sprintf("[white]%s  [gray]· press q to quit", subtitle))
-
-	return tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(top, 0, 3, false).
-		AddItem(d.responseTable, responseHeight(edges), 0, false).
-		AddItem(d.changes, 0, 1, false).
-		AddItem(help, 1, 0, false)
 }
