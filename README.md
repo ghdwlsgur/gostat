@@ -59,7 +59,7 @@ $ brew upgrade gostat
 ### Linux
 
 ```bash
-$ VERSION=1.2.6
+$ VERSION=1.3.0
 
 # [install] x86_64
 $ curl -fsSL https://github.com/ghdwlsgur/gostat/releases/download/v${VERSION}/gostat_${VERSION}_Linux_x86_64.tar.gz | tar -xz
