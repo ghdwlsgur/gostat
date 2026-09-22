@@ -84,6 +84,11 @@ func newDashboard(client *probe.Client, u *url.URL, edges []string) *Dashboard {
 	}
 
 	d.app.SetRoot(layout(d, len(edges), u.String()), true)
+	// The response table is the one panel that can be wider than the screen,
+	// so it takes the focus and the arrow keys scroll it. Its header row and
+	// address column are fixed, so a column scrolled into view still says
+	// what it is and which edge it belongs to.
+	d.app.SetFocus(d.responseTable)
 
 	return d
 }

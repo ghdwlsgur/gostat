@@ -55,6 +55,23 @@ func newResponseTable() *tview.Table {
 	table := newTable("Response")
 	table.SetFixed(1, 1)
 
+	// tview scrolls a non-selectable table by decrementing the column offset
+	// with no floor, so a left press at the start leaves it at -1. The next
+	// right press only brings it back to zero, and the table looks like it
+	// ignored a key. Stop at the start instead.
+	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() != tcell.KeyLeft {
+			return event
+		}
+
+		if _, column := table.GetOffset(); column <= 0 {
+			table.SetOffset(0, 0)
+			return nil
+		}
+
+		return event
+	})
+
 	return table
 }
 

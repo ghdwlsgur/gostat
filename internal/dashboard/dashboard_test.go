@@ -62,6 +62,39 @@ func settle(app *tview.Application, fn func()) {
 	<-done
 }
 
+// offsetOf reads the table's scroll position on the application's own
+// goroutine. tview does not guard the field, so reading it from the test
+// races with the input handler writing it - and returns whichever value the
+// race happens to produce.
+func offsetOf(app *tview.Application, table *tview.Table) (int, int) {
+	var row, column int
+
+	done := make(chan struct{})
+	app.QueueUpdate(func() {
+		row, column = table.GetOffset()
+		close(done)
+	})
+	<-done
+
+	return row, column
+}
+
+// screenNow reads the simulation screen on the application's own goroutine.
+// GetContents hands back the live cell buffer, so reading it from the test
+// races with the next draw.
+func screenNow(app *tview.Application, screen tcell.SimulationScreen) string {
+	var text string
+
+	done := make(chan struct{})
+	app.QueueUpdate(func() {
+		text = screenText(screen)
+		close(done)
+	})
+	<-done
+
+	return text
+}
+
 func screenText(screen tcell.SimulationScreen) string {
 	cells, width, height := screen.GetContents()
 
@@ -84,7 +117,7 @@ func screenText(screen tcell.SimulationScreen) string {
 // renderScreen draws the dashboard onto a simulation screen of the given size
 // and hands the screen back, along with the call that shuts the application
 // down again.
-func renderScreen(t *testing.T, width, height int, edges []string) (tcell.SimulationScreen, func()) {
+func renderScreen(t *testing.T, width, height int, edges []string) (tcell.SimulationScreen, *tview.Application, func()) {
 	t.Helper()
 
 	screen := tcell.NewSimulationScreen("UTF-8")
@@ -102,7 +135,7 @@ func renderScreen(t *testing.T, width, height int, edges []string) (tcell.Simula
 		}
 	})
 
-	return screen, func() {
+	return screen, d.app, func() {
 		d.app.Stop()
 		if err := <-stopped; err != nil {
 			t.Errorf("app.Run: %v", err)
@@ -114,10 +147,10 @@ func renderScreen(t *testing.T, width, height int, edges []string) (tcell.Simula
 func render(t *testing.T, width, height int, edges []string) string {
 	t.Helper()
 
-	screen, stop := renderScreen(t, width, height, edges)
+	screen, app, stop := renderScreen(t, width, height, edges)
 	defer stop()
 
-	return screenText(screen)
+	return screenNow(app, screen)
 }
 
 // The view this replaced was pinned to coordinates that needed 180 by 43. On
@@ -328,5 +361,83 @@ func TestStatusColor(t *testing.T) {
 		if got := statusColor(tt.statusCode); got != tt.want {
 			t.Errorf("statusColor(%d) = %v, want %v", tt.statusCode, got, tt.want)
 		}
+	}
+}
+
+// The table can be wider than the screen, so the arrow keys have to scroll it.
+// Asserting that focus was set would only restate the code; this drives the
+// key and checks both the offset and what is on screen.
+func TestArrowKeysScrollTheResponseTable(t *testing.T) {
+	edges := []string{"1.1.1.1"}
+
+	// Every header filled, so the table is unambiguously wider than the
+	// screen. With a sparse response it nearly fits and tview simply clamps
+	// the offset back, which is correct but tests nothing.
+	wide := sampleResult(http.StatusPartialContent)
+	for _, h := range []string{"Cache-Control", "Age", "ETag", "Last-Modified", "Content-Length", "Content-Type", "Expires", "Via"} {
+		wide.Headers.Set(h, "0123456789abcdef")
+	}
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	d := testDashboard(t, edges)
+	d.app.SetScreen(screen)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- d.app.Run() }()
+	defer func() {
+		d.app.Stop()
+		if err := <-stopped; err != nil {
+			t.Errorf("app.Run: %v", err)
+		}
+	}()
+
+	settle(d.app, nil)
+	// Narrow enough that the later columns cannot fit.
+	screen.SetSize(60, 12)
+	settle(d.app, func() { d.record(0, "1.1.1.1", wide) })
+
+	before := screenNow(d.app, screen)
+
+	for i := 0; i < 6; i++ {
+		screen.InjectKey(tcell.KeyRight, 0, tcell.ModNone)
+	}
+	// Twice: the first drains the injected events, the second waits for the
+	// redraw they caused.
+	settle(d.app, nil)
+	settle(d.app, nil)
+
+	if _, column := offsetOf(d.app, d.responseTable); column == 0 {
+		t.Fatal("the right arrow did not move the table")
+	}
+	if before == screenNow(d.app, screen) {
+		t.Error("the table moved but the screen did not")
+	}
+
+	after := screenNow(d.app, screen)
+	if !strings.Contains(after, "IP") || !strings.Contains(after, "1.1.1.1") {
+		t.Errorf("the fixed header and address column scrolled away with the rest:\n%s", after)
+	}
+
+	// tview stops at the last column rather than scrolling into blank space.
+	_, far := offsetOf(d.app, d.responseTable)
+	for i := 0; i < 40; i++ {
+		screen.InjectKey(tcell.KeyRight, 0, tcell.ModNone)
+	}
+	settle(d.app, nil)
+	settle(d.app, nil)
+	if _, column := offsetOf(d.app, d.responseTable); column < far {
+		t.Errorf("scrolling further moved the table backwards, from %d to %d", far, column)
+	}
+
+	// Left brings it home and stops there. tview decrements the offset with no
+	// floor, so without the guard this ends at -1: the table would then need
+	// two right presses to move, and look like it swallowed the first.
+	for i := 0; i < 20; i++ {
+		screen.InjectKey(tcell.KeyLeft, 0, tcell.ModNone)
+		settle(d.app, nil)
+	}
+
+	if _, column := offsetOf(d.app, d.responseTable); column != 0 {
+		t.Errorf("left arrow left the table at column %d, want it to stop at the start", column)
 	}
 }
