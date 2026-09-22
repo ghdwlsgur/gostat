@@ -364,9 +364,58 @@ func TestStatusColor(t *testing.T) {
 	}
 }
 
+// waitForOffset drives the application until the table's column offset
+// satisfies want, or gives up.
+//
+// Queueing an update does not guarantee that keys injected before it have been
+// handled: the event and the update reach the same loop by different routes.
+// Asserting after a fixed number of settles therefore passes or fails
+// depending on which arrived first, which is how this test came to block a
+// release on a busy machine.
+func waitForOffset(t *testing.T, app *tview.Application, table *tview.Table, want func(int) bool) int {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, column := offsetOf(app, table)
+		if want(column) {
+			return column
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the table settled at column %d, which is not what this was waiting for", column)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// The guard is what stops tview scrolling past the start, and it is a pure
+// function of the offset, so it is worth testing without an event loop at all.
+func TestLeftArrowStopsAtTheStart(t *testing.T) {
+	table := newResponseTable()
+	fillResponseTable(table, []string{"1.1.1.1"}, map[string]*probe.Result{
+		"1.1.1.1": sampleResult(http.StatusOK),
+	}, []int{0, 1, 2})
+
+	capture := table.GetInputCapture()
+	left := tcell.NewEventKey(tcell.KeyLeft, 0, tcell.ModNone)
+
+	// At the start the key is swallowed: tview would decrement the offset with
+	// no floor, leaving it at -1 and making the next right press look ignored.
+	table.SetOffset(0, 0)
+	if capture(left) != nil {
+		t.Error("a left press at the start was passed through to tview")
+	}
+
+	// Away from it the key goes through and tview does the scrolling.
+	table.SetOffset(0, 2)
+	if capture(left) == nil {
+		t.Error("a left press away from the start was swallowed")
+	}
+}
+
 // The table can be wider than the screen, so the arrow keys have to scroll it.
 // Asserting that focus was set would only restate the code; this drives the
-// key and checks both the offset and what is on screen.
+// key and checks what is on screen.
 func TestArrowKeysScrollTheResponseTable(t *testing.T) {
 	edges := []string{"1.1.1.1"}
 
@@ -401,43 +450,28 @@ func TestArrowKeysScrollTheResponseTable(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		screen.InjectKey(tcell.KeyRight, 0, tcell.ModNone)
 	}
-	// Twice: the first drains the injected events, the second waits for the
-	// redraw they caused.
-	settle(d.app, nil)
-	settle(d.app, nil)
-
-	if _, column := offsetOf(d.app, d.responseTable); column == 0 {
-		t.Fatal("the right arrow did not move the table")
-	}
-	if before == screenNow(d.app, screen) {
-		t.Error("the table moved but the screen did not")
-	}
+	far := waitForOffset(t, d.app, d.responseTable, func(column int) bool { return column > 0 })
 
 	after := screenNow(d.app, screen)
+	if before == after {
+		t.Error("the table moved but the screen did not")
+	}
 	if !strings.Contains(after, "IP") || !strings.Contains(after, "1.1.1.1") {
 		t.Errorf("the fixed header and address column scrolled away with the rest:\n%s", after)
 	}
 
 	// tview stops at the last column rather than scrolling into blank space.
-	_, far := offsetOf(d.app, d.responseTable)
 	for i := 0; i < 40; i++ {
 		screen.InjectKey(tcell.KeyRight, 0, tcell.ModNone)
 	}
-	settle(d.app, nil)
-	settle(d.app, nil)
-	if _, column := offsetOf(d.app, d.responseTable); column < far {
-		t.Errorf("scrolling further moved the table backwards, from %d to %d", far, column)
+	end := waitForOffset(t, d.app, d.responseTable, func(column int) bool { return column >= far })
+	if end < far {
+		t.Errorf("scrolling further moved the table backwards, from %d to %d", far, end)
 	}
 
-	// Left brings it home and stops there. tview decrements the offset with no
-	// floor, so without the guard this ends at -1: the table would then need
-	// two right presses to move, and look like it swallowed the first.
-	for i := 0; i < 20; i++ {
+	// And left brings it home and stops there.
+	for i := 0; i < 60; i++ {
 		screen.InjectKey(tcell.KeyLeft, 0, tcell.ModNone)
-		settle(d.app, nil)
 	}
-
-	if _, column := offsetOf(d.app, d.responseTable); column != 0 {
-		t.Errorf("left arrow left the table at column %d, want it to stop at the start", column)
-	}
+	waitForOffset(t, d.app, d.responseTable, func(column int) bool { return column == 0 })
 }
